@@ -1,0 +1,60 @@
+name: Broadcast lower third
+description: Wide lower-third strip with a table of values and a full-width plot.
+
+output:
+  resolution: 1080p
+  fps: 60
+
+time:
+  speed: 1.0
+
+theme:
+  base: clean
+
+events: true
+
+widgets:
+  - type: graph
+    name: strip
+    channel: [thrust, thrust_above_rest, force]
+    x: 3%
+    y: 76%
+    width: 60%
+    height: 19%
+    mode: full
+    show_value: true
+    fill: true
+    title: Thrust
+    y_label: "N"
+
+  - type: table
+    name: values
+    x: 66%
+    y: 76%
+    width: 31%
+    height: 19%
+    size: 28
+    row_gap: 20
+    padding: 26
+    rows:
+      - channel: [thrust, thrust_above_rest, force]
+        label: Thrust
+        format: "{:.1f}"
+      - channel: [thrust, thrust_above_rest, force]
+        label: Peak
+        peak_hold: true
+        format: "{:.1f}"
+      - channel: [thrust, thrust_above_rest, force]
+        label: Lowest
+        peak_hold: true
+        peak_mode: min
+        format: "{:.1f}"
+
+  - type: timer
+    name: clock
+    x: 3%
+    y: 70%
+    size: 34
+    style: t+
+    decimals: 2
+    panel: false

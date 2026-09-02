@@ -1,0 +1,61 @@
+name: Instrument HUD
+description: Corner instrument cluster with a scrolling window plot and bars.
+
+output:
+  resolution: 1080p
+  fps: 60
+
+time:
+  speed: 0.5
+
+theme:
+  base: hud
+
+events: true
+
+widgets:
+  - type: label
+    name: title
+    text: Telemetry
+    x: 96%
+    y: 5%
+    align: right
+    size: 30
+    tracking: 6
+    uppercase: true
+
+  - type: timer
+    name: clock
+    x: 96%
+    y: 9.5%
+    align: right
+    size: 46
+    style: t+
+    decimals: 2
+
+  - type: bar
+    name: thrust_bar
+    channel: [thrust, thrust_above_rest, force]
+    x: 70%
+    y: 18%
+    width: 26%
+    label: Thrust
+    thickness: 20
+    ticks: 4
+    peak_marker: true
+    format: "{:.1f}"
+
+  - type: graph
+    name: scroll
+    channel: [thrust, thrust_above_rest, force]
+    x: 70%
+    y: 28%
+    width: 26%
+    height: 22%
+    mode: window
+    window: 2.5
+    playhead_pos: 0.75
+    show_value: true
+    fill: true
+    glow: true
+    y_label: "N"

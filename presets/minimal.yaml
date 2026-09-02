@@ -1,0 +1,48 @@
+name: Minimal
+description: One big number and a slim live plot - unobtrusive, reads on any footage.
+
+output:
+  resolution: 1080p
+  fps: 60
+
+time:
+  speed: 1.0
+
+theme:
+  base: flame
+
+events: true
+
+widgets:
+  - type: timer
+    name: clock
+    x: 4%
+    y: 84%
+    size: 40
+    style: t+
+    decimals: 2
+
+  - type: readout
+    name: value
+    channel: [thrust, thrust_above_rest, force]
+    x: 4%
+    y: 89%
+    value_size: 64
+    label: ""
+    format: "{:.1f}"
+
+  - type: graph
+    name: plot
+    channel: [thrust, thrust_above_rest, force]
+    x: 40%
+    y: 84%
+    width: 56%
+    height: 12%
+    mode: full
+    panel: false
+    grid: false
+    axis_labels: false
+    ghost: true
+    fill: true
+    dot: true
+    line_width: 3

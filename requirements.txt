@@ -1,0 +1,6 @@
+numpy>=1.23
+Pillow>=9.5
+PyYAML>=6.0
+openpyxl>=3.1
+# Ships a static ffmpeg binary, so video export works without a system install.
+imageio-ffmpeg>=0.4.9

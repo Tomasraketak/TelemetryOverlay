@@ -1,0 +1,139 @@
+name: Static fire - thrust
+description: Full dashboard for a rocket motor static fire (thrust, impulse, pyro).
+
+output:
+  resolution: 1080p
+  fps: 60
+
+time:
+  speed: 1.0
+  # Slow the burn down 4x so the curve is readable, easing in and out.
+  ramps:
+    - from: 1.4
+      to: 3.6
+      speed: 0.25
+      ease: 0.25
+      label: burn
+
+theme:
+  base: night
+  palette: rocket
+  accent: "#ff9f0a"
+
+# Channels the logger never recorded, computed on load.
+derived:
+  - key: impulse
+    label: Total impulse
+    unit: "N·s"
+    expression: integral(clip(thrust, 0, 1e9))
+  - key: thrust_kgf
+    label: Thrust
+    unit: kgf
+    expression: thrust / g
+
+events:
+  - detect: [thrust, thrust_above_rest, force]
+    fraction: 0.05
+  - edges: [pyro_active, pyro_energised, pyro]
+    label: PYRO
+    optional: true
+
+widgets:
+  - type: label
+    name: title
+    text: Static fire
+    x: 4%
+    y: 5.5%
+    size: 40
+    tracking: 5
+    uppercase: true
+
+  - type: timer
+    name: clock
+    x: 4%
+    y: 11%
+    label: mission time
+    size: 54
+    style: t+
+    decimals: 2
+
+  - type: readout
+    name: thrust_big
+    channel: [thrust, thrust_above_rest, force]
+    label: Thrust
+    x: 4%
+    y: 22%
+    value_size: 92
+    format: "{:.1f}"
+
+  - type: readout
+    name: peak
+    channel: [thrust, thrust_above_rest, force]
+    label: Peak
+    peak_hold: true
+    x: 4%
+    y: 36%
+    value_size: 44
+    format: "{:.1f}"
+
+  - type: readout
+    name: impulse
+    channel: impulse
+    label: Impulse
+    x: 17%
+    y: 36%
+    value_size: 44
+    format: "{:.1f}"
+
+  - type: led
+    name: pyro
+    channel: [pyro_active, pyro_energised, pyro]
+    optional: true
+    x: 4%
+    y: 47%
+    label: Pyro
+    on_text: Pyro armed
+    off_text: Pyro off
+    size: 15
+    label_size: 26
+
+  - type: gauge
+    name: thrust_gauge
+    channel: [thrust, thrust_above_rest, force]
+    x: 88%
+    y: 8%
+    anchor: top-center
+    width: 260
+    height: 260
+    min: 0
+    max: 300
+    label: Thrust
+    format: "{:.0f}"
+    show_scale: true
+    zones:
+      - from: 0
+        to: 200
+        color: "#34c759"
+      - from: 200
+        to: 270
+        color: "#ffd60a"
+      - from: 270
+        to: 100000
+        color: "#ff453a"
+
+  - type: graph
+    name: thrust_curve
+    title: Thrust curve
+    series:
+      - channel: [thrust, thrust_above_rest, force]
+        fill: true
+        width: 3.5
+    x: 4%
+    y: 60%
+    width: 56%
+    height: 33%
+    mode: full
+    show_value: true
+    y_label: "N"
+    x_label: "t [s]"
+    y_min: 0
