@@ -1,223 +1,159 @@
-# Telemetry Overlay
+# Telemetry Overlay 2.0
 
-Generátor **animovaných telemetrických overlayů s průhledným pozadím**.
-Z CSV nebo XLSX logu vyrobí video (ProRes 4444 / QuickTime RLE / WebM s alfa
-kanálem) nebo PNG sekvenci, které stačí položit v DaVinci Resolve na stopu nad
-záběr. Zdarma, offline, bez nahrávání dat kamkoliv.
+Univerzální open-source **extraktor, konvertor a generátor animovaných telemetrických overlayů**.
+Zdarma, plně offline, bez nahrávání dat na servery, pro Windows, macOS i Linux.
 
-Dělá to samé co GoPro Telemetry Extractor, ale pro **libovolná data z vlastního
-loggeru** – tah motoru, tlak, teplotu, rychlost, výšku, napětí, cokoliv co máte
-ve sloupci.
+Zvládá vše, co placený **GoPro Telemetry Extractor + Telemetry Overlay**, a přidává navíc plnou podporu pro **vlastní vědecké/raketové loggery**, skriptovatelné výrazy, pokročilé filtrování signálů, rampy zpomalení času, dávkové zpracování i lokální interaktivní webové studio.
 
-> English summary: renders animated, alpha-transparent telemetry overlays from
-> CSV/XLSX logs straight to video (ProRes 4444, QuickTime RLE, VP9/WebM) or a
-> PNG sequence, for compositing in DaVinci Resolve. All documentation below is
-> in Czech; the CLI and config keys are in English.
+> English summary: All-in-one offline telemetry extractor, format converter and
+> high-speed animated overlay renderer supporting GoPro MP4 (GPMF), DJI SRT/MP4,
+> Garmin/Wahoo FIT, GPX, KML/KMZ, TCX, NMEA 0183, FAI IGC, JSON/GeoJSON,
+> CSV/TSV (RaceChrono/AiM/custom loggers) and XLSX. Renders alpha-transparent
+> masters (ProRes 4444, QTRLE, DNxHR, VP9, WebP, GIF, PNG sequence) or composites
+> directly onto source footage with audio passthrough.
 
 ---
 
-## Co to umí
+## Co všechno umí
 
-- **Video s alfa kanálem** – ProRes 4444, QuickTime Animation (RLE) nebo
-  VP9/WebM. Snímky jdou rovnou do ffmpegu, na disk se nic mezitím neukládá.
-- **Nebo PNG sekvence** – když editor chce jednotlivé snímky, nebo ffmpeg není.
-- **Zpomalování času** – globální rychlost, *rampy* (zpomalit jen zážeh) a
-  *zámrazy* na konkrétním okamžiku, včetně plynulého náběhu.
-- **Widgety** – velké číslo, tabulka hodnot, živý graf s přejezdem, ručičkový
-  budík, sloupcový ukazatel, stavová kontrolka, misijní hodiny, logo.
-- **Rozlišení až 8K** – layout se zadává v procentech, takže stejná konfigurace
-  funguje pro 1080p náhled i 4K master.
-- **Automatická detekce** – oddělovač, desetinná čárka, kódování, sloupec času
-  (včetně milisekund), booleovské sloupce.
-- **Detekce událostí** – zážeh, vrchol, dohoření a hrany pyro kanálu se najdou
-  samy a vyznačí se v grafu.
-- **Dopočítané veličiny** – např. celkový impuls jako integrál tahu, přímo
-  v konfiguraci.
+### 1. Vstupní formáty (11 rodin, nulové externí binárky)
+- **Akční kamery a drony**: **GoPro MP4/MOV/LRV** (nativní binární parser GPMF: `GPS5`/`GPS9`, `ACCL`, `GYRO`, `CORI` pitch/roll/yaw, `TMPC`, `ISOE`, `SHUT`), **DJI SRT** (samostatné `.srt` i vestavěné titulky v MP4/MOV).
+- **GPS, cyklistika, motorsport, letectví**: **Garmin / Wahoo `.FIT`** (čistý Python binární parser), **GPX 1.0/1.1** (včetně tepu, kadence, výkonu, teploty), **KML / KMZ**, **Garmin TCX**, **NMEA 0183** (včetně námořního větru `$xxMWV`), **FAI IGC** (plachtění/letectví).
+- **Vlastní loggery a tabulky**: **CSV / TSV** (autodetekce oddělovače, desetinné čárky, ISO-8601 a `HH:MM:SS` časů, hlaviček RaceChrono/AiM, komentářů i **textových/enum sloupců** jako fáze letu nebo zařazený stupeň), **XLSX** (včetně listu s metadaty), **JSON / JSONL / GeoJSON**.
+- **Více zdrojů najednou**: automatické spojování navazujících kapitol (např. GoPro klipy) i **slučování senzorů** (`--merge garmin.fit` s automatickou synchronizací podle UTC nebo ručním offsetem).
+
+### 2. Extrakce a konverze dat (`extract`)
+Nahrazuje *Telemetry Extractor* – z libovolného vstupu (GoPro MP4, FIT, GPX, DJI SRT, CSV, XLSX…) vyexportuje vyčištěná a dopočítaná data do:
+- **CSV**, **JSON**, **GPX 1.1**, **Google Earth 3D KML**, **GeoJSON** (GIS), **Adobe After Effects `.mgjson`** a **SRT titulků**.
+
+### 3. Automatické dopočty, kola a čištění signálu
+- **Automatická GPS/IMU analýza**: u GPS logů sám dopočítá vzdálenost, rychlost (`m/s`, `km/h`, `mph`), azimut (`bearing`), sklon (`grade %`), vertikální rychlost (`vspeed`), nastoupané metry (`elevation_gain`), podélné/příčné/celkové přetížení (`g_lon`, `g_lat`, `g_total`) a náklon (`lean_angle`).
+- **Automatická detekce kol (`--laps`)**: najde průjezdy cílovou čárou na okruhu a spočítá `lap`, `lap_time`, `last_lap`, `best_lap` a `lap_delta`.
+- **Filtry signálu**: mediánové odstranění špiček (`despike`), klouzavý průměr (`smooth`), exponenciální vyhlazení (`ema`), dolní propust (`lowpass`), GPS filtr skoků (`gps_filter`), převzorkování (`resample`).
+- **Bezpečné AST výrazy (`derived:` i přímo ve widgetech)**: `integral`, `derivative`, `smooth`, `ema`, `median_filter`, `despike`, `lowpass`, `norm`, `haversine_dist`, převody jednotek (`to_kmh`, `to_mph`, `to_knots`, `to_ft`, `to_psi`, `to_kgf`, …).
+
+### 4. 22 typů widgetů, 10 motivů a 10 hotových šablon
+- **Klasické & vědecké**: `label` (i šablony `{meta.*}`), `readout` (čísla, text i inline výrazy + barevné zóny), `table`, `timer` (misijní `T+` i reálný UTC čas), `graph` (gradientní výplň, legenda, plný i posuvný režim), `bar` (i obousměrný od nuly), `gauge` (s peak značkou i závodními shift-lights), `led`, `image` (včetně rotace podle libovolného kanálu!).
+- **Profi prostorové, GPS, motorsport & letecké**:
+  - `map` – GPS trasa s tepelnou mapou rychlosti/výšky, měřítkem, směrovou šipkou i follow-zoom režimem,
+  - `gforce` – 2D G-force kruh s mizící stopou a soustřednými kružnicemi,
+  - `attitude` – letecký umělý horizont (pitch ladder, náklonový oblouk, zaměřovač),
+  - `compass` – letecký/dronový posuvný kurzový pásek nebo otočná kompasová růžice,
+  - `tape` – posuvný vertikální žebřík (rychlost, výška, Mach, tah),
+  - `lean` – ukazatel náklonu motorky/letadla s L/P maximy,
+  - `elevation` – výškový profil trasy se sklonem `%` a převýšením,
+  - `sparkline` – kompaktní vysílací KPI karta s minigrafem,
+  - `pedals` – plyn / brzda / spojka + otočný volant + zařazený stupeň,
+  - `sticks` – FPV/RC dvojice kniplů se stopou pohybu,
+  - `lap_timer` – stopky kola, nejlepší/poslední kolo a live delta,
+  - `progress` – časová lišta se značkami událostí a indikátorem zpomalení (`0.25x SLOW-MO`),
+  - `badge` – barevný štítek pro textové/stavové kanály (fáze letu, stupeň, GPS fix).
+
+### 5. Rychlý export s alfou i přímé spojení se záběrem
+- **Průhledné video**: ProRes 4444, QuickTime RLE (`qtrle`), Avid **DNxHR 444**, PNG-in-MOV, VP9/WebM, animované **WebP** a **GIF**, nebo PNG sekvence.
+- **Chroma-key**: `--chroma green` nebo `--chroma blue`.
+- **Přímé vypálení na video (`--video`)**: spojí overlay rovnou se zdrojovým videem včetně bezztrátového zachování zvuku a synchronizace `--sync`.
+- **Optimalizace výkonu**: kešování statických vrstev a textů se stínem, sloučené grafové pásy, O(1) peak-hold, deduplikace snímků během zámrazů (`holds`) a paralelní segmentový render (60+ fps v 1080p na jediném jádru).
+
+### 6. Interaktivní lokální Web Studio (`studio`)
+Bez instalace Electronu nebo dalších závislostí – spustí čistý lokální náhled v prohlížeči se scrubbováním časové osy, přepínáním šablon/motivů, živým editorem YAML a jednoklikovým exportem dat.
+
+---
 
 ## Instalace
 
 ```bash
-git clone <adresa-repozitáře>
+git clone https://github.com/Tomasraketak/TelemetryOverlay.git
 cd TelemetryOverlay
 pip install -e .
 ```
 
-Tím se nainstaluje i `imageio-ffmpeg`, které s sebou nese vlastní ffmpeg –
-**export videa funguje hned, nic dalšího instalovat nemusíte.**
+Součástí instalace je `imageio-ffmpeg` s vlastním binárním `ffmpeg`, takže export videa i přímé spojování se záběrem funguje okamžitě. Vyžaduje Python 3.10+.
 
-Python 3.10 nebo novější.
+---
 
 ## Rychlý start
 
 ```bash
-# 1) Co v tom souboru vlastně je?
+# 1) Prozkoumej libovolný log (CSV, XLSX, GPX, FIT, GoPro MP4, DJI SRT, IGC, NMEA...)
 telemetry-overlay inspect examples/static_fire_thrust.csv
+telemetry-overlay inspect examples/circuit_lap.gpx --laps
 
-# 2) Vyrob konfiguraci na míru těmto datům
-telemetry-overlay init examples/static_fire_thrust.csv -o overlay.yaml
+# 2) Vygeneruj chytrou konfiguraci podle typu dat (raketa, kolo, motorsport, dron, letadlo)
+telemetry-overlay init examples/circuit_lap.gpx -o overlay.yaml
 
-# 3) Zkontroluj vzhled na jednom snímku (rychlé)
-telemetry-overlay preview examples/static_fire_thrust.csv \
-    -c overlay.yaml --at peak -o preview.png
+# 3) Otevři interaktivní Web Studio v prohlížeči
+telemetry-overlay studio examples/circuit_lap.gpx
 
-# 4) Vyrenderuj video
-telemetry-overlay render examples/static_fire_thrust.csv \
-    -c overlay.yaml -o overlay.mov
+# 4) Rychlý náhled jednoho snímku
+telemetry-overlay preview examples/circuit_lap.gpx -c motorsport --at 65% -o preview.png
+
+# 5) Vyrenderuj průhledné video pro DaVinci Resolve (QTRLE je nejrychlejší a nejmenší)
+telemetry-overlay render examples/static_fire_thrust.csv -c rocket_thrust -o overlay.mov --codec qtrle
+
+# 6) Nebo rovnou vypal overlay přes zdrojové GoPro / DJI video (včetně zvuku)
+telemetry-overlay render GX010001.MP4 -c action_cam --video GX010001.MP4 -o final.mp4
+
+# 7) Extrahuj telemetrii z kamery / FIT / SRT do GPX, KML, GeoJSON, CSV nebo After Effects MGJSON
+telemetry-overlay extract GX010001.MP4 -o track.gpx
+telemetry-overlay extract examples/circuit_lap.gpx -o ae_data.mgjson
+
+# 8) Dávkové zpracování více souborů najednou
+telemetry-overlay batch *.gpx -c cycling -o renders/ --codec qtrle
+telemetry-overlay batch *.MP4 --extract-to gpx -o tracks/
 ```
 
-Nebo rovnou s připravenou šablonou, bez psaní konfigurace:
+Přehled všeho dostupného přímo v terminálu:
 
 ```bash
-telemetry-overlay presets                     # seznam šablon
-telemetry-overlay render data.csv -c rocket_thrust -o overlay.mov
+telemetry-overlay presets   # 10 hotových šablon
+telemetry-overlay widgets   # 22 widgetů a 10 barevných motivů
+telemetry-overlay formats   # 11 vstupních, 7 exportních a 9 video formátů
 ```
 
-## Formát výstupu
+---
 
-Formát se pozná podle přípony souboru:
+## Formáty výstupního videa
 
-| `-o …`         | Kodek        | Alfa | Poznámka                                       |
-|----------------|--------------|------|------------------------------------------------|
-| `overlay.mov`  | ProRes 4444  | ano  | Výchozí. Standardní vstup do Resolve.          |
-| `overlay.mov --codec qtrle` | QuickTime RLE | ano | Bezztrátové, **výrazně menší a rychlejší**. |
-| `overlay.webm` | VP9          | ano  | Pro web, ne pro Resolve.                       |
-| `overlay.mp4`  | H.264        | **ne** | Jen na rychlé kouknutí – průhlednost zčerná. |
-| `frames/`      | PNG sekvence | ano  | Jednotlivé snímky, ffmpeg není potřeba.        |
+| Výstup / `--codec` | Kodek | Alfa | Poznámka |
+|---|---|---|---|
+| `overlay.mov` | `prores4444` | ano | Výchozí. 16bit alfa, standard pro Resolve / Premiere / FCP. |
+| `overlay.mov --codec qtrle` | `qtrle` | ano | Bezztrátové, **několikanásobně menší a rychlejší** pro overlaye. |
+| `overlay.mov --codec dnxhr` | `dnxhr` | ano | Avid DNxHR 444 s alfou pro Resolve/Avid. |
+| `overlay.webm` | `vp9` | ano | Pro web a OBS. |
+| `overlay.webp` / `.gif` | `webp` / `gif` | ano | Kompaktní animace pro web a sdílení. |
+| `final.mp4 --video src.mp4` | `h264` / `h265` | – | Přímé sloučení se záběrem + kopie zvuku. |
+| `frames/` | PNG sekvence | ano | Jednotlivé snímky bez potřeby ffmpegu. |
 
-Na 13sekundovém klipu v 1080p60 z přiloženého vzorku:
-ProRes 4444 = 372 MB / 56 s, QuickTime RLE = 66 MB / 12 s. Overlay je z větší
-části průhledný, a právě to RLE komprimuje mimořádně dobře – **`--codec qtrle`
-je pro tenhle účel většinou lepší volba.**
+---
 
-## Zpomalení času
+## Dokumentace
 
-Nejjednodušší je globální rychlost. `--speed 0.25` znamená čtyřikrát pomaleji:
-
-```bash
-telemetry-overlay render data.csv -c rocket_thrust -o overlay.mov --speed 0.25
-```
-
-Většinou ale chcete zpomalit **jen zajímavý úsek**. K tomu slouží rampy –
-`--ramp OD:DO:RYCHLOST[:NÁBĚH]`, časy jsou v sekundách dat:
-
-```bash
-# zbytek v reálném čase, zážeh 1,6–2,6 s pětkrát pomaleji,
-# s 0,15 s plynulým náběhem na obou koncích
-telemetry-overlay render data.csv -c rocket_thrust -o overlay.mov \
-    --ramp 1.6:2.6:0.2:0.15
-```
-
-A `--hold KDY:SEKUND` zamrzne na daném okamžiku (video běží, data stojí):
-
-```bash
-telemetry-overlay render data.csv -c rocket_thrust -o overlay.mov \
-    --ramp 1.6:2.6:0.2:0.15 --hold 2.30:1.5
-```
-
-Totéž jde zapsat i do konfigurace, viz [docs/CONFIG.md](docs/CONFIG.md).
-
-> **Důležité:** tohle mění jen tempo *overlaye*. Aby seděl na obraz, musíte
-> stejné zpomalení udělat i se záběrem – v Resolve přes Retime Controls.
-> Postup je popsaný v [docs/DAVINCI_RESOLVE.md](docs/DAVINCI_RESOLVE.md).
-
-## Import do DaVinci Resolve
-
-Celý postup i s řešením průhlednosti je v
-**[docs/DAVINCI_RESOLVE.md](docs/DAVINCI_RESOLVE.md)**. Zkráceně: overlay
-patří na stopu **nad** záběr, alfa kanál se použije sám. Pokud je pozadí černé,
-přepněte u klipu *Clip Attributes → Alpha Mode* na **Premultiplied**.
-
-## Vlastní vzhled
-
-Konfigurace je YAML (nebo JSON). Kompletní popis všech widgetů a jejich
-parametrů je v **[docs/CONFIG.md](docs/CONFIG.md)**. Ukázka:
-
-```yaml
-output:
-  resolution: 4k          # nebo 1080p, 2560x1440, …
-  fps: 60
-
-time:
-  speed: 1.0
-  ramps:
-    - { from: 1.4, to: 3.6, speed: 0.25, ease: 0.25 }
-
-theme:
-  base: night             # night | day | hud | flame | clean
-  palette: rocket
-
-derived:                  # veličiny, které logger nezaznamenal
-  - key: impulse
-    label: Celkový impuls
-    unit: "N·s"
-    expression: integral(clip(thrust, 0, 1e9))
-
-widgets:
-  - type: readout
-    channel: thrust
-    label: Tah
-    x: 4%
-    y: 22%
-    value_size: 92
-
-  - type: graph
-    channel: thrust
-    x: 4%
-    y: 60%
-    width: 56%
-    height: 33%
-    show_value: true
-```
-
-## Vlastní data
-
-Nic nastavovat nemusíte – oddělovač, desetinná čárka i sloupec času se poznají
-samy. `inspect` ukáže, jak byl soubor pochopen:
-
-```bash
-telemetry-overlay inspect muj_log.csv
-```
-
-Když se sloupec času netrefí, přebijte to ručně:
-
-```bash
-telemetry-overlay inspect muj_log.csv --time-column "Cas" --time-unit ms
-telemetry-overlay inspect data.xlsx --sheet "Data"
-```
-
-Jména kanálů pro konfiguraci vznikají z hlaviček: `Thrust [N]` → `thrust`,
-`Pyro Active` → `pyro_active`. Jednotka v hranatých nebo kulatých závorkách se
-z názvu odřízne a použije se jako popisek.
-
-Když každý logger pojmenovává tutéž veličinu jinak, dá se místo jednoho názvu
-uvést **seznam kandidátů** – použije se první, který v souboru existuje.
-Přiložené šablony to tak dělají, takže `rocket_thrust` funguje na obou
-vzorových souborech, přestože jeden má `pyro_active` a druhý `pyro_energised`:
-
-```yaml
-- type: led
-  channel: [pyro_active, pyro_energised, pyro]
-  optional: true      # chybí-li všechny, widget se jen vynechá
-```
+- **[docs/CONFIG.md](docs/CONFIG.md)** – kompletní reference konfigurace YAML/JSON, všech 22 widgetů, motivů, filtrů a výrazů.
+- **[docs/DAVINCI_RESOLVE.md](docs/DAVINCI_RESOLVE.md)** – import průhledného videa i PNG sekvencí do DaVinci Resolve a sladění ramp zpomalení.
 
 ## Struktura projektu
 
 ```
 telemetry_overlay/
-├── data.py         načtení CSV/XLSX, detekce formátu
-├── timeline.py     mapování času dat na snímky (rychlost, rampy, zámrazy)
-├── expressions.py  dopočítané kanály (uzavřená sada funkcí)
-├── events.py       detekce zážehu, vrcholu, dohoření, hran
-├── config.py       čtení a validace konfigurace
-├── render.py       skládání snímků
-├── export.py       zápis videa a PNG sekvencí
-├── theme.py        barvy, geometrie, kreslicí primitiva
-├── fonts.py        hledání fontů napříč systémy
-└── widgets/        label, readout, table, timer, graph, bar, gauge, led, image
-presets/            hotové šablony
-examples/           vzorová data
-docs/               podrobná dokumentace
-tests/              130 testů
+├── data.py          datový model (Channel, Telemetry, LoadOptions, load, load_many)
+├── formats/         CSV/XLSX/JSON/GeoJSON, GPX/KML/TCX/NMEA/IGC, Garmin FIT,
+│                    DJI SRT/MP4, GoPro GPMF MP4, auto-enrichment, lap detection, filtry
+├── extract.py       export do CSV, JSON, GPX, KML, GeoJSON, After Effects MGJSON, SRT
+├── timeline.py      mapování času na snímky (rychlost, rampy, zámrazy)
+├── expressions.py   AST-sandboxované výrazy a knihovna matematických/signálových funkcí
+├── events.py        detekce zážehu, vrcholu, dohoření, hran i okruhových kol
+├── config.py        validace konfigurace a chytrý generátor šablon (init)
+├── render.py        optimalizovaný kompozitor snímků
+├── export.py        paralelní video export, přímé spojování se záběrem, PNG sekvence
+├── studio.py        lokální interaktivní Web Studio (zero-dependency)
+├── theme.py         10 motivů, barevné mapy, alpha-safe kreslicí primitiva a keš textů
+├── fonts.py         hledání fontů napříč OS
+└── widgets/         22 widgetů (text, graph, indicators, spatial, telemetry_pro)
+presets/             10 šablon (rocket_thrust, rocket_flight, motorsport, cycling,
+                     aviation, drone_fpv, action_cam, broadcast, hud, minimal)
+examples/            vzorová data (CSV, XLSX, GPX, DJI SRT)
+tests/               201 automatických testů
 ```
 
 ## Testy

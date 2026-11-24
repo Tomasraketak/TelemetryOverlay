@@ -2,27 +2,59 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image
 
-from ..data import Telemetry
+from ..data import Channel, Telemetry
 from ..fonts import get_font
 from ..theme import (
-    RGBA, Rect, Theme, anchor_offset, draw_text, parse_color, resolve_length,
-    rounded_rect, text_size, with_alpha,
+    RGBA, Rect, Theme, anchor_offset, composite_clipped, make_panel_image,
+    parse_color, resolve_length, scale_alpha,
 )
 from ..timeline import Timeline
 
-__all__ = ["RenderContext", "Widget", "register", "build_widget", "WIDGET_TYPES",
-           "format_value", "ChannelNotFound", "peak_value"]
+__all__ = [
+    "RenderContext", "Widget", "register", "build_widget", "WIDGET_TYPES",
+    "format_value", "ChannelNotFound", "peak_value", "zone_color", "parse_zones",
+]
 
 
 class ChannelNotFound(ValueError):
     """A widget asked for a channel the log does not contain."""
+
+
+def parse_zones(spec: Any) -> list[dict[str, Any]]:
+    if not spec:
+        return []
+    if not isinstance(spec, (list, tuple)):
+        raise ValueError("'zones' must be a list of {from, to, color} mappings")
+    out: list[dict[str, Any]] = []
+    for zone in spec:
+        if not isinstance(zone, dict):
+            raise ValueError(f"zone must be a mapping, got {zone!r}")
+        out.append({
+            "from": float(zone.get("from", -math.inf)),
+            "to": float(zone.get("to", math.inf)),
+            "color": parse_color(zone.get("color", "#ffffff")),
+        })
+    return out
+
+
+def zone_color(value: float, zones: list[dict[str, Any]], default: RGBA) -> RGBA:
+    """Colour for a value from a pre-parsed list of ``{from, to, color}`` bands."""
+    if not zones or not math.isfinite(value):
+        return default
+    for zone in zones:
+        if zone["from"] <= value <= zone["to"]:
+            col = zone["color"]
+            return col if isinstance(col, tuple) else parse_color(col, default)
+    return default
 
 
 @dataclass
@@ -37,6 +69,7 @@ class RenderContext:
     events: list[dict[str, Any]] = field(default_factory=list)
     scale: float = 1.0          # design-size to output-size multiplier
     t0: float = 0.0             # data time treated as "T+0"
+    source_dir: Path | None = None
 
     def px_x(self, value: Any, default: float = 0.0) -> float:
         return resolve_length(value, self.width, default)
@@ -51,24 +84,36 @@ class RenderContext:
     def value_at(self, key: str, t: float, interpolate: bool = True) -> float:
         return self.telemetry.value_at(key, t, interpolate)
 
+    def text_at(self, key: str, t: float) -> str:
+        return self.telemetry.text_at(key, t)
 
-def peak_value(ctx: "RenderContext", key: str, data_t: float,
-               mode: str = "max") -> float:
-    """Largest (or smallest) value of a channel up to ``data_t``.
+    def ensure_expression(self, expression: str, unit: str = "", label: str = "") -> str:
+        """Evaluate an inline widget ``expression:`` once and register a cached channel."""
+        expr = str(expression).strip()
+        if expr in self.telemetry.channels:
+            return expr
+        digest = hashlib.sha1(expr.encode("utf-8")).hexdigest()[:12]
+        key = f"__expr_{digest}"
+        if key not in self.telemetry.channels:
+            from ..expressions import evaluate
+            values = evaluate(expr, self.telemetry)
+            self.telemetry.add(
+                Channel(key=key, label=label or expr, unit=unit, values=values, kind="numeric")
+            )
+        return key
 
-    Computed from the samples rather than accumulated across calls, so a frame
-    rendered out of order - as happens in the worker pool - still shows the
-    right number.
-    """
+
+def peak_value(
+    ctx: RenderContext, key: str, data_t: float, mode: str = "max"
+) -> float:
+    """O(1) largest (or smallest) value of a channel up to ``data_t``."""
     channel = ctx.telemetry.get(key)
     if channel is None:
         return float("nan")
     idx = ctx.telemetry.index_at(data_t)
-    window = channel.values[: idx + 1]
-    window = window[np.isfinite(window)]
-    if window.size == 0:
-        return float("nan")
-    return float(window.min() if mode == "min" else window.max())
+    if mode == "min":
+        return channel.running_min_at(idx)
+    return channel.running_max_at(idx)
 
 
 def format_value(value: float, fmt: str = "{:.1f}", nan_text: str = "--") -> str:
@@ -90,6 +135,7 @@ class Widget:
     """
 
     type_name = "widget"
+    is_static = False  # subclasses that never vary with time can set True
 
     def __init__(self, spec: dict[str, Any], ctx: RenderContext):
         self.spec = spec
@@ -97,12 +143,13 @@ class Widget:
         self.name = str(spec.get("name", self.type_name))
         self.visible = bool(spec.get("visible", True))
         self.opacity = float(spec.get("opacity", 1.0))
-        # Optional time window in which the widget is shown at all.
         self.show_from = spec.get("show_from")
         self.show_to = spec.get("show_to")
         self.fade = float(spec.get("fade", 0.0))
         self.theme = ctx.theme
         self.rect = self._resolve_rect(spec, ctx)
+        self._panel_cache: dict[tuple[int, int], Image.Image | None] = {}
+        self._shadow_cache: tuple[RGBA | None, tuple[int, int], int] | None = None
 
     # -- geometry ---------------------------------------------------------
     def _resolve_rect(self, spec: dict[str, Any], ctx: RenderContext) -> Rect:
@@ -131,6 +178,11 @@ class Widget:
             )
         return key
 
+    def resolve_optional_channel(self, value: Any) -> str | None:
+        if value is None:
+            return None
+        return self.ctx.telemetry.resolve(value)
+
     def color(self, key: str, default: Any = None) -> RGBA:
         """A colour from the spec, falling back to a theme entry."""
         if key in self.spec:
@@ -156,35 +208,46 @@ class Widget:
                 alpha *= min(1.0, (end - data_t) / self.fade)
         return max(0.0, min(1.0, alpha))
 
+    def build_panel_layer(self, w: float, h: float) -> Image.Image | None:
+        """Build (or retrieve cached) pre-rendered RGBA panel layer."""
+        if self.spec.get("panel", True) is False:
+            return None
+        iw, ih = int(round(w)), int(round(h))
+        if iw <= 0 or ih <= 0:
+            return None
+        cache_key = (iw, ih)
+        if cache_key not in self._panel_cache:
+            fill = parse_color(self.spec.get("panel_color", self.theme.panel))
+            border = parse_color(self.spec.get("panel_border", self.theme.panel_border))
+            radius = self.ctx.px_x(
+                self.spec.get("corner_radius"),
+                self.theme.corner_radius * self.ctx.scale,
+            )
+            bw = max(1, int(round(float(self.spec.get("border_width", 1)) * self.ctx.scale)))
+            self._panel_cache[cache_key] = make_panel_image(iw, ih, radius, fill, border, bw)
+        return self._panel_cache[cache_key]
+
     def draw_panel(self, image: Image.Image, rect: Rect | None = None) -> None:
-        """Draw the widget's background plate, if it has one."""
+        """Composite the widget's background plate using proper alpha blending."""
         rect = rect or self.rect
-        panel = self.spec.get("panel", True)
-        if panel is False:
-            return
-        fill = parse_color(self.spec.get("panel_color", self.theme.panel))
-        border = parse_color(self.spec.get("panel_border", self.theme.panel_border))
-        if fill[3] == 0 and border[3] == 0:
-            return
-        radius = self.ctx.px_x(
-            self.spec.get("corner_radius"), self.theme.corner_radius * self.ctx.scale
-        )
-        width = max(1, int(round(
-            float(self.spec.get("border_width", 1)) * self.ctx.scale)))
-        rounded_rect(ImageDraw.Draw(image), rect.as_tuple(), radius,
-                     fill=fill, outline=border if border[3] else None, width=width)
+        panel_img = self.build_panel_layer(rect.w, rect.h)
+        if panel_img is not None:
+            composite_clipped(image, panel_img, int(round(rect.x)), int(round(rect.y)))
 
     def text_shadow(self) -> tuple[RGBA | None, tuple[int, int], int]:
-        """Shadow settings for text, honouring a per-widget override."""
-        if self.spec.get("text_shadow", True) is False:
-            return None, (0, 0), 0
-        color = parse_color(self.spec.get("shadow_color", self.theme.shadow))
-        scale = self.ctx.scale
-        off = self.spec.get("shadow_offset", self.theme.shadow_offset)
-        offset = (int(round(float(off[0]) * scale)), int(round(float(off[1]) * scale)))
-        blur = int(round(float(self.spec.get("shadow_blur",
-                                             self.theme.shadow_blur)) * scale))
-        return color, offset, blur
+        """Shadow settings for text, cached per widget."""
+        if self._shadow_cache is None:
+            if self.spec.get("text_shadow", True) is False:
+                self._shadow_cache = (None, (0, 0), 0)
+            else:
+                color = parse_color(self.spec.get("shadow_color", self.theme.shadow))
+                scale = self.ctx.scale
+                off = self.spec.get("shadow_offset", self.theme.shadow_offset)
+                offset = (int(round(float(off[0]) * scale)), int(round(float(off[1]) * scale)))
+                blur = int(round(float(self.spec.get("shadow_blur",
+                                                     self.theme.shadow_blur)) * scale))
+                self._shadow_cache = (color, offset, blur)
+        return self._shadow_cache
 
     # -- lifecycle --------------------------------------------------------
     def prepare(self) -> None:
@@ -204,24 +267,22 @@ class Widget:
         if alpha >= 0.999:
             self.render(image, data_t, frame)
             return
-        # Partial opacity needs its own layer so overlapping strokes inside
-        # the widget do not accumulate alpha against each other.
         layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
         self.render(layer, data_t, frame)
-        if alpha < 1.0:
-            bands = layer.split()
-            layer.putalpha(bands[3].point(lambda a: int(a * alpha)))
-        image.alpha_composite(layer)
+        image.alpha_composite(scale_alpha(layer, alpha))
 
 
 WIDGET_TYPES: dict[str, type[Widget]] = {}
+WIDGET_ALIASES: dict[str, str] = {}
 
 
-def register(name: str) -> Callable[[type[Widget]], type[Widget]]:
-    """Class decorator adding a widget to the config vocabulary."""
+def register(name: str, *aliases: str) -> Callable[[type[Widget]], type[Widget]]:
+    """Class decorator adding a widget (and optional aliases) to the config vocabulary."""
     def decorator(cls: type[Widget]) -> type[Widget]:
         cls.type_name = name
         WIDGET_TYPES[name] = cls
+        for alias in aliases:
+            WIDGET_ALIASES[alias] = name
         return cls
     return decorator
 
@@ -233,7 +294,8 @@ def build_widget(spec: dict[str, Any], ctx: RenderContext) -> Widget | None:
     kind = str(spec.get("type", "")).strip().lower()
     if not kind:
         raise ValueError(f"widget is missing a 'type': {spec!r}")
-    cls = WIDGET_TYPES.get(kind)
+    canonical = WIDGET_ALIASES.get(kind, kind)
+    cls = WIDGET_TYPES.get(canonical)
     if cls is None:
         raise ValueError(
             f"unknown widget type {kind!r}; available: "
@@ -242,8 +304,6 @@ def build_widget(spec: dict[str, Any], ctx: RenderContext) -> Widget | None:
     try:
         return cls(spec, ctx)
     except ChannelNotFound:
-        # A widget marked optional is dropped when its channel is absent, so
-        # one preset can cover logs that do not all record the same things.
         if spec.get("optional"):
             return None
         raise

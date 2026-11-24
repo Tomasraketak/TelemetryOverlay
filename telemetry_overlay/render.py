@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Iterator
 
-import numpy as np
 from PIL import Image
 
 from .config import Config
-from .data import Telemetry, load as load_data
+from .data import Telemetry, load as load_data, load_many
 from .events import build_events
 from .expressions import add_derived
+from .formats.enrichment import apply_filters
 from .theme import parse_color
 from .timeline import Timeline, build_timeline
 from .widgets import RenderContext, Widget, build_widget
@@ -41,15 +40,18 @@ def _resolve_window(config: Config, telemetry: Telemetry) -> _Window:
 class OverlayRenderer:
     """Renders overlay frames for one config/telemetry pair.
 
-    Constructing the renderer does all the frame-independent work: derived
-    channels, event detection, widget construction and each widget's cache.
-    After that :meth:`render_frame` is cheap enough to run in a worker pool.
+    Constructing the renderer does all the frame-independent work: filters,
+    derived channels, event detection, widget construction and each widget's
+    pre-rendered static caches. After that :meth:`render_frame` is cheap enough
+    to run in a worker pool.
     """
 
     def __init__(self, config: Config, telemetry: Telemetry):
         self.config = config
         self.telemetry = telemetry
 
+        if config.filters:
+            apply_filters(telemetry, config.filters)
         add_derived(telemetry, config.derived)
         window = _resolve_window(config, telemetry)
         self.timeline: Timeline = build_timeline(
@@ -62,8 +64,9 @@ class OverlayRenderer:
             max_duration=config.max_duration,
         )
         self.events = build_events(telemetry, config.events)
-        self.background = (parse_color(config.background)
-                           if config.background else (0, 0, 0, 0))
+        self.background = (
+            parse_color(config.background) if config.background else (0, 0, 0, 0)
+        )
 
         self.context = RenderContext(
             telemetry=telemetry,
@@ -74,6 +77,7 @@ class OverlayRenderer:
             events=self.events,
             scale=config.scale,
             t0=config.t0,
+            source_dir=config.source_path.parent if config.source_path else None,
         )
 
         self.widgets: list[Widget] = []
@@ -81,8 +85,11 @@ class OverlayRenderer:
             try:
                 widget = build_widget(spec, self.context)
             except Exception as exc:
-                name = spec.get("name", spec.get("type", f"#{index}")) \
-                    if isinstance(spec, dict) else f"#{index}"
+                name = (
+                    spec.get("name", spec.get("type", f"#{index}"))
+                    if isinstance(spec, dict)
+                    else f"#{index}"
+                )
                 raise ValueError(f"widget '{name}': {exc}") from exc
             if widget is not None:
                 self.widgets.append(widget)
@@ -92,6 +99,9 @@ class OverlayRenderer:
                 widget.prepare()
             except Exception as exc:
                 raise ValueError(f"widget '{widget.name}': {exc}") from exc
+
+        # Pre-allocate the base canvas once; .copy() is a fast C memcpy.
+        self._blank_template = Image.new("RGBA", self.size, self.background)
 
     # -- properties -------------------------------------------------------
     @property
@@ -109,13 +119,14 @@ class OverlayRenderer:
     # -- rendering --------------------------------------------------------
     def blank(self) -> Image.Image:
         """A fresh frame - transparent unless a background colour was set."""
-        return Image.new("RGBA", self.size, self.background)
+        return self._blank_template.copy()
 
     def render_frame(self, frame: int) -> Image.Image:
         """Render one output frame by its index."""
         if not 0 <= frame < self.frame_count:
             raise IndexError(
-                f"frame {frame} out of range (0..{self.frame_count - 1})")
+                f"frame {frame} out of range (0..{self.frame_count - 1})"
+            )
         return self.render_at(self.timeline.data_time(frame), frame)
 
     def render_at(self, data_t: float, frame: int = 0) -> Image.Image:
@@ -130,8 +141,9 @@ class OverlayRenderer:
                 ) from exc
         return image
 
-    def frames(self, start: int = 0, stop: int | None = None
-               ) -> Iterator[tuple[int, Image.Image]]:
+    def frames(
+        self, start: int = 0, stop: int | None = None
+    ) -> Iterator[tuple[int, Image.Image]]:
         """Iterate over rendered frames."""
         stop = self.frame_count if stop is None else min(stop, self.frame_count)
         for index in range(start, stop):
@@ -147,18 +159,26 @@ class OverlayRenderer:
             + (f" ({', '.join(w.name for w in self.widgets)})" if self.widgets else ""),
         ]
         if self.events:
-            marks = ", ".join(f"{e['label']}@{e['time']:.3f}s" for e in self.events)
+            marks = ", ".join(f"{e['label']}@{e['time']:.3f}s" for e in self.events[:10])
+            if len(self.events) > 10:
+                marks += f" (+{len(self.events) - 10} more)"
             lines.append(f"events        : {marks}")
         return "\n".join(lines)
 
 
-def build_renderer(config: Config, data_path: str | Path | None = None,
-                   telemetry: Telemetry | None = None) -> OverlayRenderer:
+def build_renderer(
+    config: Config,
+    data_path: str | Path | list[str | Path] | None = None,
+    telemetry: Telemetry | None = None,
+) -> OverlayRenderer:
     """Load the data if needed and construct a renderer."""
     if telemetry is None:
         if data_path is None:
             raise ValueError("either a data path or a Telemetry object is required")
-        telemetry = load_data(data_path, config.data)
+        if isinstance(data_path, (list, tuple)):
+            telemetry = load_many(data_path, config.data)
+        else:
+            telemetry = load_data(data_path, config.data)
     if telemetry.time.size == 0:
         raise ValueError("the log contains no samples")
     return OverlayRenderer(config, telemetry)

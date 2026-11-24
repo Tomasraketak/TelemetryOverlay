@@ -12,8 +12,10 @@ from .data import LoadOptions, Telemetry
 from .theme import THEMES, Theme
 from .timeline import Hold, Ramp
 
-__all__ = ["Config", "load_config", "save_config", "suggest_config",
-           "RESOLUTIONS", "parse_resolution"]
+__all__ = [
+    "Config", "load_config", "save_config", "suggest_config",
+    "RESOLUTIONS", "parse_resolution",
+]
 
 RESOLUTIONS: dict[str, tuple[int, int]] = {
     "720p": (1280, 720),
@@ -23,6 +25,7 @@ RESOLUTIONS: dict[str, tuple[int, int]] = {
     "4k": (3840, 2160),
     "uhd": (3840, 2160),
     "dci4k": (4096, 2160),
+    "5.3k": (5312, 2988),
     "8k": (7680, 4320),
     "vertical1080": (1080, 1920),
     "vertical4k": (2160, 3840),
@@ -31,8 +34,6 @@ RESOLUTIONS: dict[str, tuple[int, int]] = {
 
 _RES_RE = re.compile(r"^\s*(\d{2,5})\s*[x×*]\s*(\d{2,5})\s*$", re.IGNORECASE)
 
-# The design canvas every size/position in a config is expressed against.
-# Rendering at another resolution scales the whole layout by width ratio.
 DESIGN_WIDTH = 1920
 DESIGN_HEIGHT = 1080
 
@@ -69,9 +70,10 @@ class Config:
     theme: Theme = field(default_factory=Theme)
     widgets: list[dict[str, Any]] = field(default_factory=list)
     derived: list[dict[str, Any]] = field(default_factory=list)
+    filters: list[dict[str, Any]] = field(default_factory=list)
     events: Any = True
     data: LoadOptions = field(default_factory=LoadOptions)
-    background: Any = None          # None keeps the frame transparent
+    background: Any = None
     max_duration: float | None = 900.0
     source_path: Path | None = None
 
@@ -87,7 +89,7 @@ def _read_structured(path: Path) -> dict[str, Any]:
     if suffix in {".yaml", ".yml"}:
         try:
             import yaml
-        except ImportError as exc:  # pragma: no cover - dependency guard
+        except ImportError as exc:  # pragma: no cover
             raise RuntimeError(
                 "Reading YAML configs needs PyYAML - install it with: "
                 "pip install pyyaml  (or use a .json config)"
@@ -103,13 +105,14 @@ def _read_structured(path: Path) -> dict[str, Any]:
 
 
 _KNOWN_TOP_LEVEL = {
-    "output", "time", "theme", "widgets", "derived", "events", "data",
-    "background", "name", "description", "notes",
+    "output", "time", "theme", "widgets", "derived", "filters", "events",
+    "data", "background", "name", "description", "notes",
 }
 
 
-def load_config(path: str | Path | None, overrides: dict[str, Any] | None = None
-                ) -> Config:
+def load_config(
+    path: str | Path | None, overrides: dict[str, Any] | None = None
+) -> Config:
     """Load a YAML/JSON config, apply overrides, and validate it."""
     raw: dict[str, Any] = {}
     source: Path | None = None
@@ -152,15 +155,23 @@ def load_config(path: str | Path | None, overrides: dict[str, Any] | None = None
     ramps = [_build_ramp(r) for r in (time_cfg.get("ramps") or [])]
     holds = [_build_hold(h) for h in (time_cfg.get("holds") or [])]
 
-    theme = Theme.from_dict(raw.get("theme"))
+    theme_raw = dict(raw.get("theme") or {})
+    if overrides.get("theme") is not None:
+        theme_raw["base"] = overrides["theme"]
+    theme = Theme.from_dict(theme_raw)
 
     widgets = raw.get("widgets") or []
     if not isinstance(widgets, list):
         raise ValueError("'widgets' must be a list")
 
+    filters = list(raw.get("filters") or [])
+    if not isinstance(filters, list):
+        raise ValueError("'filters' must be a list")
+
     data_cfg = dict(raw.get("data") or {})
     for key in ("delimiter", "decimal", "time_column", "time_unit", "sheet",
-                "encoding"):
+                "encoding", "skip_rows", "format", "enrich", "detect_laps",
+                "time_offset"):
         if overrides.get(key) is not None:
             data_cfg[key] = overrides[key]
     load_options = LoadOptions(
@@ -171,11 +182,21 @@ def load_config(path: str | Path | None, overrides: dict[str, Any] | None = None
         sheet=data_cfg.get("sheet"),
         encoding=data_cfg.get("encoding"),
         skip_rows=int(data_cfg.get("skip_rows", 0)),
+        format=data_cfg.get("format"),
+        enrich=bool(data_cfg.get("enrich", True)),
+        detect_laps=bool(data_cfg.get("detect_laps", False)),
+        time_offset=float(data_cfg.get("time_offset", 0.0)),
+        filters=list(data_cfg.get("filters") or []),
+        merge=list(data_cfg.get("merge") or []),
     )
 
     max_duration = output.get("max_duration", 900.0)
     if overrides.get("max_duration") is not None:
         max_duration = overrides["max_duration"]
+
+    bg = output.get("background")
+    if bg is None and raw.get("background") is not None:
+        bg = raw.get("background")
 
     return Config(
         width=width,
@@ -190,9 +211,10 @@ def load_config(path: str | Path | None, overrides: dict[str, Any] | None = None
         theme=theme,
         widgets=widgets,
         derived=raw.get("derived") or [],
+        filters=filters,
         events=raw.get("events", True),
         data=load_options,
-        background=output.get("background"),
+        background=bg,
         max_duration=None if max_duration in (None, 0) else float(max_duration),
         source_path=source,
     )
@@ -205,8 +227,7 @@ def _opt_float(value: Any) -> float | None:
 def _build_ramp(spec: Any) -> Ramp:
     if not isinstance(spec, dict):
         raise ValueError(f"time.ramps entries must be mappings, got {spec!r}")
-    missing = {"speed"} - set(spec)
-    if missing:
+    if "speed" not in spec:
         raise ValueError(f"ramp is missing 'speed': {spec!r}")
     start = spec.get("from", spec.get("start"))
     end = spec.get("to", spec.get("end"))
@@ -223,8 +244,10 @@ def _build_hold(spec: Any) -> Hold:
         raise ValueError(f"time.holds entries must be mappings, got {spec!r}")
     if "at" not in spec or "duration" not in spec:
         raise ValueError(f"hold needs 'at' and 'duration': {spec!r}")
-    return Hold(at=float(spec["at"]), duration=float(spec["duration"]),
-                label=str(spec.get("label", "")))
+    return Hold(
+        at=float(spec["at"]), duration=float(spec["duration"]),
+        label=str(spec.get("label", "")),
+    )
 
 
 def save_config(config: dict[str, Any], path: str | Path) -> Path:
@@ -233,8 +256,10 @@ def save_config(config: dict[str, Any], path: str | Path) -> Path:
     if path.suffix.lower() in {".yaml", ".yml"}:
         try:
             import yaml
-            text = yaml.safe_dump(config, sort_keys=False, allow_unicode=True,
-                                  default_flow_style=False, width=100)
+            text = yaml.safe_dump(
+                config, sort_keys=False, allow_unicode=True,
+                default_flow_style=False, width=100,
+            )
         except ImportError:
             path = path.with_suffix(".json")
             text = json.dumps(config, indent=2, ensure_ascii=False)
@@ -244,13 +269,106 @@ def save_config(config: dict[str, Any], path: str | Path) -> Path:
     return path
 
 
-def suggest_config(telemetry: Telemetry, resolution: str = "1080p",
-                   fps: float = 60.0) -> dict[str, Any]:
-    """Build a starter config that already fits the given log.
+def suggest_config(
+    telemetry: Telemetry, resolution: str = "1080p", fps: float = 60.0
+) -> dict[str, Any]:
+    """Build a domain-aware starter config tailored to the loaded telemetry.
 
-    Picks the most plot-worthy channel for the big graph, adds a readout for
-    it, a lamp for every boolean, and a slow-motion ramp around the peak.
+    Detects Cycling/Fitness, Aviation/Drone, Motorsport/Action-Cam, Rocketry
+    or generic logger logs and picks matching widgets, themes and time ramps.
     """
+    keys = set(telemetry.channels)
+    has_gps = telemetry.has_gps
+    has_fitness = bool(keys & {"heart_rate", "cadence", "power"})
+    has_attitude = bool(keys & {"pitch"}) and bool(keys & {"roll"})
+    has_motorsport = bool(keys & {"rpm", "throttle", "brake", "gear", "lap"})
+    has_thrust = any(any(w in k for w in ("thrust", "force", "tah")) for k in keys)
+
+    # 1) Cycling / Fitness GPS
+    if has_gps and has_fitness:
+        widgets: list[dict[str, Any]] = [
+            {"type": "map", "name": "route", "x": "3%", "y": "5%",
+             "width": 300, "height": 300, "title": "ROUTE"},
+            {"type": "gauge", "name": "speed_dial", "channel": ["speed_kmh", "speed"],
+             "x": "96%", "y": "6%", "anchor": "top-right",
+             "width": 250, "height": 250, "label": "Speed", "show_scale": True,
+             "format": "{:.0f}"},
+            {"type": "elevation", "name": "elevation_profile", "x": "3%", "y": "79%",
+             "width": "44%", "height": "16%", "optional": True},
+        ]
+        x_cursor = 52
+        for ch, lbl, fmt in (
+            ("power", "Power", "{:.0f}"),
+            ("heart_rate", "Heart Rate", "{:.0f}"),
+            ("cadence", "Cadence", "{:.0f}"),
+        ):
+            if ch in telemetry:
+                widgets.append({
+                    "type": "sparkline", "name": ch, "channel": ch, "label": lbl,
+                    "x": f"{x_cursor}%", "y": "82%", "width": "14%", "height": "13%",
+                    "format": fmt,
+                })
+                x_cursor += 15
+        return {
+            "name": "Cycling & Fitness Telemetry",
+            "output": {"resolution": resolution, "fps": fps},
+            "time": {"speed": 1.0},
+            "theme": {"base": "cycling"},
+            "events": False,
+            "widgets": widgets,
+        }
+
+    # 2) Aviation / Drone Flight
+    if has_gps and has_attitude:
+        widgets = [
+            {"type": "compass", "name": "heading", "x": "50%", "y": "3%",
+             "anchor": "top-center", "width": 440, "height": 74, "style": "tape"},
+            {"type": "attitude", "name": "horizon", "x": "50%", "y": "50%",
+             "anchor": "middle-center", "width": 260, "height": 260, "opacity": 0.88},
+            {"type": "tape", "name": "spd_tape", "channel": ["speed_kmh", "speed"],
+             "label": "SPD", "side": "left", "x": "3%", "y": "24%", "width": 125, "height": 340},
+            {"type": "tape", "name": "alt_tape", "channel": ["altitude", "rel_altitude"],
+             "label": "ALT", "side": "right", "x": "97%", "y": "24%",
+             "anchor": "top-right", "width": 125, "height": 340, "optional": True},
+            {"type": "map", "name": "flight_path", "x": "3%", "y": "68%",
+             "width": 280, "height": 280, "title": "FLIGHT PATH"},
+        ]
+        return {
+            "name": "Aviation / Drone HUD",
+            "output": {"resolution": resolution, "fps": fps},
+            "time": {"speed": 1.0},
+            "theme": {"base": "aviation"},
+            "events": False,
+            "widgets": widgets,
+        }
+
+    # 3) Motorsport / Action-cam GPS
+    if has_gps or has_motorsport:
+        widgets = [
+            {"type": "gauge", "name": "speed", "channel": ["speed_kmh", "speed"],
+             "x": "96%", "y": "94%", "anchor": "bottom-right",
+             "width": 270, "height": 270, "label": "Speed", "show_scale": True,
+             "shift_lights": True, "peak_marker": True, "format": "{:.0f}"},
+            {"type": "gforce", "name": "g_ball", "x": "78%", "y": "94%",
+             "anchor": "bottom-right", "width": 230, "height": 245, "optional": True},
+            {"type": "map", "name": "track", "x": "3%", "y": "5%",
+             "width": 310, "height": 310, "title": "TRACK", "optional": True},
+            {"type": "pedals", "name": "driver_inputs", "x": "3%", "y": "94%",
+             "anchor": "bottom-left", "width": 260, "height": 145, "optional": True},
+            {"type": "timer", "name": "clock", "x": "96%", "y": "5%",
+             "anchor": "top-right", "align": "right", "size": 36, "style": "clock",
+             "decimals": 1, "panel": False},
+        ]
+        return {
+            "name": "Action / Motorsport Telemetry",
+            "output": {"resolution": resolution, "fps": fps},
+            "time": {"speed": 1.0},
+            "theme": {"base": "motorsport"},
+            "events": False,
+            "widgets": widgets,
+        }
+
+    # 4) Rocketry / Engineering / Generic Logger (preserves existing behaviour)
     numeric = [k for k in telemetry.numeric_keys()
                if not k.startswith("time") and k != "time"]
     booleans = [k for k, c in telemetry.channels.items() if c.is_boolean]
@@ -261,7 +379,6 @@ def suggest_config(telemetry: Telemetry, resolution: str = "1080p",
         if finite.size < 2:
             return -1.0
         span = float(finite.max() - finite.min())
-        # Prefer a channel whose name reads like a primary measurement.
         bonus = 5.0 if any(w in key for w in
                            ("thrust", "force", "tah", "press", "accel", "alt")) else 0.0
         return bonus + (1.0 if span > 0 else 0.0)
@@ -269,8 +386,9 @@ def suggest_config(telemetry: Telemetry, resolution: str = "1080p",
     primary = max(numeric, key=interest) if numeric else None
     secondary = [k for k in numeric if k != primary][:2]
 
-    widgets: list[dict[str, Any]] = [
-        {"type": "label", "name": "title", "text": "STATIC FIRE",
+    widgets = [
+        {"type": "label", "name": "title",
+         "text": "STATIC FIRE" if has_thrust else "TELEMETRY",
          "x": "4%", "y": "6%", "size": 40, "tracking": 4, "uppercase": True},
         {"type": "timer", "name": "clock", "x": "4%", "y": "12%",
          "label": "mission time", "size": 52, "style": "t+", "decimals": 2},
@@ -295,7 +413,7 @@ def suggest_config(telemetry: Telemetry, resolution: str = "1080p",
         widgets.append({
             "type": "gauge", "name": f"{primary}_gauge", "channel": primary,
             "x": "88%", "y": "10%", "anchor": "top-center",
-            "width": 230, "height": 230,
+            "width": 240, "height": 240, "show_scale": True, "peak_marker": True,
             "min": max(0.0, lo), "max": hi * 1.05,
         })
 
@@ -305,7 +423,6 @@ def suggest_config(telemetry: Telemetry, resolution: str = "1080p",
             "x": "4%", "y": f"{44 + i * 5}%", "label": telemetry[key].label,
         })
 
-    # Slow the region around the peak so the interesting part is readable.
     time_cfg: dict[str, Any] = {"speed": 1.0}
     if primary:
         import numpy as np

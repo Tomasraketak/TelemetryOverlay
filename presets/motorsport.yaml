@@ -1,0 +1,101 @@
+name: Motorsport Racing HUD
+description: Track map, speedometer with shift lights, G-force circle, pedals/gear, lap timer and live speed plot.
+
+output:
+  resolution: 1080p
+  fps: 60
+
+time:
+  speed: 1.0
+
+theme:
+  base: motorsport
+
+data:
+  detect_laps: true
+
+events:
+  - laps: true
+    color: "#facc15"
+
+widgets:
+  - type: map
+    name: track_map
+    title: Circuit
+    x: 3%
+    y: 4%
+    width: 310
+    height: 310
+    color_channel: [speed_kmh, speed]
+    colormap: speed
+    optional: true
+
+  - type: lap_timer
+    name: lap_timer
+    x: 97%
+    y: 4%
+    anchor: top-right
+    width: 280
+    height: 150
+    optional: true
+
+  - type: gauge
+    name: speed_gauge
+    channel: [speed_kmh, speed]
+    x: 97%
+    y: 95%
+    anchor: bottom-right
+    width: 270
+    height: 270
+    label: Speed
+    format: "{:.0f}"
+    show_scale: true
+    shift_lights: true
+    peak_marker: true
+    zones:
+      - { from: 0, to: 120, color: "#22c55e" }
+      - { from: 120, to: 200, color: "#facc15" }
+      - { from: 200, to: 1000, color: "#ef4444" }
+
+  - type: gforce
+    name: g_circle
+    x: 80%
+    y: 95%
+    anchor: bottom-right
+    width: 225
+    height: 245
+    max_g: 1.8
+    optional: true
+
+  - type: pedals
+    name: driver_inputs
+    x: 3%
+    y: 95%
+    anchor: bottom-left
+    width: 270
+    height: 150
+    optional: true
+
+  - type: graph
+    name: speed_trace
+    title: Speed Trace
+    channel: [speed_kmh, speed]
+    x: 20%
+    y: 78%
+    width: 44%
+    height: 17%
+    mode: window
+    window: 12.0
+    playhead_pos: 0.85
+    show_value: true
+    fill: true
+    gradient: true
+    events: false
+
+  - type: progress
+    name: progress_bar
+    x: 4%
+    y: 97.5%
+    width: 92%
+    height: 22
+    thickness: 5

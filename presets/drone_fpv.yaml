@@ -1,0 +1,93 @@
+name: Drone & FPV Telemetry HUD
+description: Heading ribbon, flight path map, camera settings table (ISO/Shutter/Aperture), RC thumbsticks and altitude/speed sparklines.
+
+output:
+  resolution: 1080p
+  fps: 60
+
+time:
+  speed: 1.0
+
+theme:
+  base: hud
+
+events: false
+
+widgets:
+  - type: compass
+    name: heading
+    style: tape
+    x: 50%
+    y: 3%
+    anchor: top-center
+    width: 420
+    height: 70
+    optional: true
+
+  - type: map
+    name: drone_map
+    title: Flight Path
+    x: 3%
+    y: 4%
+    width: 290
+    height: 290
+    color_channel: [rel_altitude, altitude, speed_kmh]
+    colormap: ocean
+    optional: true
+
+  - type: sticks
+    name: rc_sticks
+    x: 50%
+    y: 94%
+    anchor: bottom-center
+    width: 310
+    height: 150
+    optional: true
+
+  - type: sparkline
+    name: alt_card
+    channel: [rel_altitude, altitude]
+    label: Altitude
+    format: "{:.1f}"
+    x: 3%
+    y: 82%
+    width: 17%
+    height: 13%
+    optional: true
+
+  - type: sparkline
+    name: speed_card
+    channel: [speed_kmh, speed]
+    label: Ground Speed
+    format: "{:.1f}"
+    x: 21.5%
+    y: 82%
+    width: 17%
+    height: 13%
+    optional: true
+
+  - type: readout
+    name: dist_home
+    channel: [home_distance, distance]
+    label: Distance
+    x: 97%
+    y: 4%
+    anchor: top-right
+    align: right
+    value_size: 46
+    format: "{:.0f}"
+    optional: true
+
+  - type: table
+    name: camera_info
+    x: 97%
+    y: 95%
+    anchor: bottom-right
+    width: 21%
+    size: 22
+    padding: 14
+    rows:
+      - { channel: iso, label: ISO, format: "{:.0f}" }
+      - { channel: fnum, label: Aperture, format: "f/{:.1f}", unit: "" }
+      - { channel: focal_length, label: Focal, format: "{:.0f}" }
+    optional: true

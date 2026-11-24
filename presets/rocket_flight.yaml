@@ -1,0 +1,115 @@
+name: Rocket Launch Flight Dashboard
+description: Full flight telemetry dashboard with altitude tape, velocity, acceleration G, attitude, flight phase badge and trajectory curve.
+
+output:
+  resolution: 1080p
+  fps: 60
+
+time:
+  speed: 1.0
+
+theme:
+  base: night
+  palette: rocket
+  accent: "#ff9f0a"
+
+events: true
+
+widgets:
+  - type: label
+    name: title
+    text: FLIGHT TELEMETRY
+    x: 4%
+    y: 4.5%
+    size: 36
+    tracking: 5
+    uppercase: true
+
+  - type: timer
+    name: mission_clock
+    x: 4%
+    y: 10%
+    label: mission elapsed
+    size: 50
+    style: t+
+    decimals: 2
+    show_speed: true
+
+  - type: badge
+    name: phase_badge
+    channel: [phase, flight_phase, state, mode]
+    label: Phase
+    x: 4%
+    y: 21%
+    size: 20
+    colors:
+      pad: "#64748b"
+      boost: "#ff453a"
+      burn: "#ff453a"
+      coast: "#ff9f0a"
+      apogee: "#38bdf8"
+      descent: "#34c759"
+      chute: "#34c759"
+      landed: "#a855f7"
+    optional: true
+
+  - type: readout
+    name: alt_big
+    channel: [altitude, alt, baro_altitude]
+    label: Altitude
+    x: 4%
+    y: 29%
+    value_size: 76
+    format: "{:.0f}"
+    optional: true
+
+  - type: readout
+    name: vel_big
+    channel: [velocity, speed, vspeed]
+    label: Velocity
+    x: 4%
+    y: 43%
+    value_size: 56
+    format: "{:.1f}"
+    optional: true
+
+  - type: tape
+    name: alt_ladder
+    channel: [altitude, alt, baro_altitude]
+    label: ALT
+    side: right
+    x: 96%
+    y: 10%
+    anchor: top-right
+    width: 130
+    height: 360
+    optional: true
+
+  - type: attitude
+    name: rocket_attitude
+    x: 82%
+    y: 12%
+    anchor: top-center
+    width: 220
+    height: 220
+    optional: true
+
+  - type: graph
+    name: flight_profile
+    title: Flight Profile
+    channel: [altitude, thrust, velocity, speed]
+    x: 4%
+    y: 62%
+    width: 56%
+    height: 30%
+    mode: full
+    show_value: true
+    fill: true
+    gradient: true
+
+  - type: progress
+    name: mission_bar
+    x: 4%
+    y: 94.5%
+    width: 92%
+    height: 34

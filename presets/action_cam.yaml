@@ -1,0 +1,77 @@
+name: Action Cam Universal HUD
+description: All-purpose GoPro / DJI / Insta360 overlay with GPS map, speed dial, G-force, lean angle, elevation and UTC clock.
+
+output:
+  resolution: 1080p
+  fps: 60
+
+time:
+  speed: 1.0
+
+theme:
+  base: clean
+
+events: false
+
+widgets:
+  - type: map
+    name: route
+    title: GPS Track
+    x: 3%
+    y: 4%
+    width: 295
+    height: 295
+    color_channel: [speed_kmh, speed]
+    colormap: speed
+    optional: true
+
+  - type: timer
+    name: utc_clock
+    x: 97%
+    y: 4%
+    anchor: top-right
+    align: right
+    size: 32
+    style: clock
+    decimals: 0
+    panel: false
+
+  - type: gauge
+    name: speed_gauge
+    channel: [speed_kmh, speed]
+    x: 97%
+    y: 95%
+    anchor: bottom-right
+    width: 260
+    height: 260
+    label: Speed
+    format: "{:.0f}"
+    show_scale: true
+    peak_marker: true
+
+  - type: gforce
+    name: g_meter
+    x: 81%
+    y: 95%
+    anchor: bottom-right
+    width: 215
+    height: 235
+    max_g: 1.5
+    optional: true
+
+  - type: lean
+    name: lean_gauge
+    x: 65%
+    y: 95%
+    anchor: bottom-right
+    width: 230
+    height: 150
+    optional: true
+
+  - type: elevation
+    name: elevation_chart
+    x: 3%
+    y: 80%
+    width: 38%
+    height: 15%
+    optional: true

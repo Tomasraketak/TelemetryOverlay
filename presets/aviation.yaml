@@ -1,0 +1,93 @@
+name: Aviation Glass Cockpit HUD
+description: Artificial horizon, compass heading tape, scrolling airspeed & altitude ladder tapes, vertical speed bar and GPS flight path.
+
+output:
+  resolution: 1080p
+  fps: 60
+
+time:
+  speed: 1.0
+
+theme:
+  base: aviation
+
+events: false
+
+widgets:
+  - type: compass
+    name: heading_tape
+    style: tape
+    x: 50%
+    y: 3%
+    anchor: top-center
+    width: 460
+    height: 74
+    optional: true
+
+  - type: attitude
+    name: artificial_horizon
+    x: 50%
+    y: 48%
+    anchor: middle-center
+    width: 280
+    height: 280
+    opacity: 0.86
+    optional: true
+
+  - type: tape
+    name: speed_tape
+    channel: [tas, ias, speed_kmh, speed]
+    label: SPD
+    side: left
+    x: 3%
+    y: 22%
+    width: 130
+    height: 360
+    optional: true
+
+  - type: tape
+    name: alt_tape
+    channel: [altitude, baro_altitude, rel_altitude]
+    label: ALT
+    side: right
+    x: 97%
+    y: 22%
+    anchor: top-right
+    width: 130
+    height: 360
+    optional: true
+
+  - type: bar
+    name: vspeed_bar
+    channel: [vspeed, vat]
+    label: VSI
+    orientation: vertical
+    bidirectional: true
+    min: -10
+    max: 10
+    x: 84%
+    y: 26%
+    anchor: top-right
+    width: 96
+    height: 290
+    format: "{:+.1f}"
+    optional: true
+
+  - type: map
+    name: flight_map
+    title: Flight Path
+    x: 3%
+    y: 66%
+    width: 280
+    height: 280
+    color_channel: [altitude, speed_kmh, speed]
+    colormap: elevation
+    optional: true
+
+  - type: elevation
+    name: alt_profile
+    x: 54%
+    y: 79%
+    width: 43%
+    height: 15%
+    optional: true

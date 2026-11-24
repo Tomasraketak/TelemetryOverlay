@@ -5,11 +5,16 @@ Importing this package registers every built-in widget type in
 """
 
 from .base import (  # noqa: F401
-    RenderContext, Widget, WIDGET_TYPES, build_widget, format_value, register,
+    RenderContext, Widget, WIDGET_ALIASES, WIDGET_TYPES, build_widget,
+    format_value, register,
 )
-from . import text as _text        # noqa: F401
-from . import graph as _graph      # noqa: F401
-from . import indicators as _ind   # noqa: F401
+from . import text as _text                  # noqa: F401
+from . import graph as _graph                # noqa: F401
+from . import indicators as _ind             # noqa: F401
+from . import spatial as _spatial            # noqa: F401
+from . import telemetry_pro as _pro          # noqa: F401
 
-__all__ = ["RenderContext", "Widget", "WIDGET_TYPES", "build_widget",
-           "format_value", "register"]
+__all__ = [
+    "RenderContext", "Widget", "WIDGET_TYPES", "WIDGET_ALIASES",
+    "build_widget", "format_value", "register",
+]

@@ -1,0 +1,93 @@
+name: Cycling & Fitness Dashboard
+description: Route map, speed dial, terrain elevation profile with grade %, and power/HR/cadence sparklines.
+
+output:
+  resolution: 1080p
+  fps: 60
+
+time:
+  speed: 1.0
+
+theme:
+  base: cycling
+
+events: false
+
+widgets:
+  - type: map
+    name: route_map
+    title: Route
+    x: 3%
+    y: 4%
+    width: 300
+    height: 300
+    color_channel: [speed_kmh, speed, altitude]
+    colormap: speed
+    optional: true
+
+  - type: timer
+    name: clock
+    x: 97%
+    y: 4%
+    anchor: top-right
+    align: right
+    size: 34
+    style: clock
+    decimals: 0
+    panel: false
+
+  - type: gauge
+    name: speed_dial
+    channel: [speed_kmh, speed]
+    x: 97%
+    y: 11%
+    anchor: top-right
+    width: 250
+    height: 250
+    label: Speed
+    format: "{:.1f}"
+    show_scale: true
+    peak_marker: true
+
+  - type: elevation
+    name: elevation_profile
+    x: 3%
+    y: 79%
+    width: 44%
+    height: 16%
+    optional: true
+
+  - type: sparkline
+    name: power_card
+    channel: [power, watts]
+    label: Power
+    format: "{:.0f}"
+    x: 50%
+    y: 82%
+    width: 14.5%
+    height: 13%
+    optional: true
+
+  - type: sparkline
+    name: hr_card
+    channel: [heart_rate, hr]
+    label: Heart Rate
+    format: "{:.0f}"
+    color: "#ef4444"
+    x: 66%
+    y: 82%
+    width: 14.5%
+    height: 13%
+    optional: true
+
+  - type: sparkline
+    name: cad_card
+    channel: [cadence, cad]
+    label: Cadence
+    format: "{:.0f}"
+    color: "#38bdf8"
+    x: 82%
+    y: 82%
+    width: 15%
+    height: 13%
+    optional: true

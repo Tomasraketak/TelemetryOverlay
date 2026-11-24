@@ -1,21 +1,23 @@
 [build-system]
-requires = ["setuptools>=64", "wheel"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "telemetry-overlay"
-version = "1.0.0"
-description = "Animated telemetry overlays with a transparent background, rendered from CSV/XLSX logs for DaVinci Resolve and other editors."
+version = "2.0.0"
+description = "Universal telemetry extractor, converter and animated overlay renderer for GoPro, DJI, Garmin FIT, GPX, IGC, NMEA, CSV and XLSX."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
-keywords = ["telemetry", "overlay", "video", "davinci-resolve", "rocketry",
-            "data-visualisation", "alpha-channel", "prores"]
+license = "MIT"
+keywords = [
+    "telemetry", "overlay", "extractor", "video", "davinci-resolve", "gopro",
+    "gpmf", "dji", "garmin", "fit", "gpx", "rocketry", "motorsport", "aviation",
+    "data-visualisation", "alpha-channel", "prores",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Topic :: Multimedia :: Video",
     "Topic :: Scientific/Engineering :: Visualization",
@@ -35,10 +37,11 @@ dev = ["pytest>=7.0"]
 telemetry-overlay = "telemetry_overlay.cli:main"
 
 [tool.setuptools]
-packages = ["telemetry_overlay", "telemetry_overlay.widgets"]
-
-[tool.setuptools.package-data]
-telemetry_overlay = ["../presets/*.yaml"]
+packages = [
+    "telemetry_overlay",
+    "telemetry_overlay.widgets",
+    "telemetry_overlay.formats",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
