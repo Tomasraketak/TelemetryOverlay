@@ -357,3 +357,34 @@ def test_cli_discovery_and_install_desktop(tmp_path, capsys):
     out_d = capsys.readouterr().out
     assert "Desktop launcher created" in out_d
     assert any(fake_desk.iterdir())
+
+
+def test_install_cmd_is_powershell_free_and_cmd_safe():
+    """Guard install.cmd against PowerShell dependency and cmd.exe parenthesis bugs."""
+    raw = (REPO / "install.cmd").read_bytes()
+    assert b"\r\n" in raw, "install.cmd must use CRLF line endings for cmd.exe"
+    text = raw.decode("utf-8")
+    assert "powershell" not in text.lower(), "install.cmd must not invoke PowerShell"
+
+    in_block = False
+    for lineno, line in enumerate(text.splitlines(), 1):
+        s = line.strip()
+        if s.upper().startswith("REM "):
+            continue
+        if not in_block and s.endswith("("):
+            in_block = True
+            continue
+        if in_block:
+            if s == ")":
+                in_block = False
+                continue
+            in_quote = False
+            for ch in s:
+                if ch == '"':
+                    in_quote = not in_quote
+                elif not in_quote and ch in "()":
+                    pytest.fail(
+                        f"install.cmd:{lineno} has unquoted {ch!r} inside a (...) block: {s}"
+                    )
+    assert not in_block, "Unclosed '(' block in install.cmd"
+
