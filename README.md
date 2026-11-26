@@ -58,8 +58,12 @@ Nahrazuje *Telemetry Extractor* – z libovolného vstupu (GoPro MP4, FIT, GPX, 
 - **Přímé vypálení na video (`--video`)**: spojí overlay rovnou se zdrojovým videem včetně bezztrátového zachování zvuku a synchronizace `--sync`.
 - **Optimalizace výkonu**: kešování statických vrstev a textů se stínem, sloučené grafové pásy, O(1) peak-hold, deduplikace snímků během zámrazů (`holds`) a paralelní segmentový render (60+ fps v 1080p na jediném jádru).
 
-### 6. Interaktivní lokální Web Studio (`studio`) + auto-update ikona na ploše
-Bez instalace Electronu nebo dalších závislostí – spustí čistý lokální náhled v prohlížeči s **přetahováním souborů (drag & drop)**, přepínáním vzorových dat/šablon/motivů, živým editorem YAML a přímým exportem PNG snímků, průhledného videa i dat (CSV/GPX/KML/MGJSON).
+### 6. Vizuální interaktivní Web Studio (`studio`) + auto-update ikona na ploše
+Bez instalace Electronu nebo dalších závislostí – spustí plnohodnotný lokální **vizuální drag-and-drop editor** přímo v prohlížeči:
+- **Přímá manipulace na plátně**: kliknutím vybereš libovolný widget, táhnutím myší ho přesuneš s chytrým přichytáváním k okrajům/středu a ostatním widgetům (zarovnávací vodítka), taháním za 8 úchytů v rozích/hranách měníš velikost (u textových widgetů automaticky škáluje velikost písma!).
+- **Katalog `+ Přidat widget`**: jedním kliknutím přidáš kterýkoli z 24 widgetů s chytrým předvyplněním kanálů pro načtená data, můžeš začít i od prázdného plátna (`Vymazat vše`).
+- **Vizuální inspektor a vrstvy**: nastavení kanálu, barev, průhlednosti, pozadí karty, úhlu 3D kamery, velikosti písma, skrytí/zobrazení (`👁`), pořadí vrstev (`▲`/`▼`), duplikace (`Ctrl+D`), jemný posun šipkami a **Zpět / Znovu (`Ctrl+Z` / `Ctrl+Y`)** — vše okamžitě synchronizované s YAML editorem.
+- **Soubory a export**: přetahování souborů (drag & drop), přepínání vzorků/šablon/motivů, uložení Full-Res PNG, render průhledného videa i export dat (CSV/GPX/KML/MGJSON).
 
 ---
 
