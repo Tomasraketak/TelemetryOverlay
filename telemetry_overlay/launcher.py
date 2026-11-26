@@ -434,7 +434,44 @@ def _create_windows_lnk(
     icon_path: Path,
     description: str,
 ) -> bool:
-    """Create a real Windows ``.lnk`` shortcut with custom icon via PowerShell WScript.Shell."""
+    """Create a real Windows ``.lnk`` shortcut with custom icon.
+
+    Tries ``cscript.exe`` (VBScript, works even when PowerShell is restricted)
+    and falls back to ``powershell.exe`` if needed.
+    """
+    cscript = shutil.which("cscript.exe") or shutil.which("cscript")
+    if cscript:
+        def _vbs_esc(val: str) -> str:
+            return val.replace('"', '""')
+
+        vbs = (
+            'Set ws = CreateObject("WScript.Shell")\r\n'
+            f'Set sc = ws.CreateShortcut("{_vbs_esc(str(shortcut_path))}")\r\n'
+            f'sc.TargetPath = "{_vbs_esc(str(target_path))}"\r\n'
+            f'sc.WorkingDirectory = "{_vbs_esc(str(working_dir))}"\r\n'
+            f'sc.IconLocation = "{_vbs_esc(str(icon_path))},0"\r\n'
+            f'sc.Description = "{_vbs_esc(description)}"\r\n'
+            "sc.Save\r\n"
+        )
+        vbs_file: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w", suffix=".vbs", delete=False, encoding="utf-8", newline=""
+            ) as tf:
+                tf.write(vbs)
+                vbs_file = Path(tf.name)
+            res = subprocess.run(
+                [cscript, "//nologo", str(vbs_file)],
+                capture_output=True, text=True, timeout=15,
+            )
+            if res.returncode == 0 and shortcut_path.exists():
+                return True
+        except (OSError, subprocess.SubprocessError):
+            pass
+        finally:
+            if vbs_file is not None:
+                vbs_file.unlink(missing_ok=True)
+
     ps = shutil.which("powershell.exe") or shutil.which("powershell")
     if not ps:
         return False
@@ -451,11 +488,14 @@ def _create_windows_lnk(
         f"$sc.Description = '{_ps_esc(description)}'; "
         "$sc.Save()"
     )
-    res = subprocess.run(
-        [ps, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
-        capture_output=True, text=True, timeout=20,
-    )
-    return res.returncode == 0 and shortcut_path.exists()
+    try:
+        res = subprocess.run(
+            [ps, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+            capture_output=True, text=True, timeout=20,
+        )
+        return res.returncode == 0 and shortcut_path.exists()
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def create_desktop_launcher(

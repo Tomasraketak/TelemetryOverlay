@@ -65,16 +65,16 @@ Bez instalace Electronu nebo dalších závislostí – spustí čistý lokáln�
 
 ## Instalace jedním příkazem (včetně auto-update ikony na ploše)
 
-### Windows (Příkazový řádek `cmd.exe` — zkopírujte a spusťte)
-
-```cmd
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/Tomasraketak/TelemetryOverlay/main/install.ps1 | iex"
-```
-
-*(Alternativně čistý `cmd` příkaz přes `curl` + `install.cmd`:)*
+### Windows (Příkazový řádek `cmd.exe` — zkopírujte a spusťte, nevyžaduje PowerShell)
 
 ```cmd
 curl -fsSL https://raw.githubusercontent.com/Tomasraketak/TelemetryOverlay/main/install.cmd -o "%TEMP%\install_to.cmd" && "%TEMP%\install_to.cmd"
+```
+
+*(Alternativně přes PowerShell, pokud není omezený politikou systému:)*
+
+```cmd
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/Tomasraketak/TelemetryOverlay/main/install.ps1 | iex"
 ```
 
 Co instalátor udělá:

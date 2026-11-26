@@ -77,8 +77,7 @@ if not errorlevel 1 (
 ) else (
     if not exist "%INSTALL_DIR%\pyproject.toml" (
         echo       Git nenalezen - stahuji ZIP archiv z GitHubu...
-        powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-          "$ErrorActionPreference='Stop'; $zip=Join-Path $env:TEMP 'telemetry_overlay.zip'; $ext=Join-Path $env:TEMP 'telemetry_overlay_ext'; if (Test-Path $ext) { Remove-Item $ext -Recurse -Force }; Invoke-WebRequest -Uri '%ZIP_URL%' -OutFile $zip; Expand-Archive -Path $zip -DestinationPath $ext -Force; $src=(Get-ChildItem $ext | Select-Object -First 1).FullName; New-Item -ItemType Directory -Force -Path '%INSTALL_DIR%' | Out-Null; Copy-Item (Join-Path $src '*') '%INSTALL_DIR%' -Recurse -Force; Remove-Item $zip,$ext -Recurse -Force"
+        %PY_CMD% -c "import io, pathlib, shutil, urllib.request, zipfile; dst=pathlib.Path(r'%INSTALL_DIR%'); dst.mkdir(parents=True, exist_ok=True); data=urllib.request.urlopen('%ZIP_URL%', timeout=30).read(); zf=zipfile.ZipFile(io.BytesIO(data)); [((dst/pathlib.Path(*pathlib.Path(m.filename).parts[1:])).mkdir(parents=True, exist_ok=True) if m.is_dir() else ((dst/pathlib.Path(*pathlib.Path(m.filename).parts[1:])).parent.mkdir(parents=True, exist_ok=True), shutil.copyfileobj(zf.open(m), open(dst/pathlib.Path(*pathlib.Path(m.filename).parts[1:]), 'wb')))) for m in zf.infolist() if len(pathlib.Path(m.filename).parts)>1]"
         if errorlevel 1 (
             echo [CHYBA] Nepodarilo se stahnout ZIP archiv z GitHubu.
             pause
