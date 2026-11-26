@@ -46,13 +46,38 @@ class OverlayRenderer:
     to run in a worker pool.
     """
 
-    def __init__(self, config: Config, telemetry: Telemetry):
+    def __init__(self, config: Config, telemetry: Telemetry, *, strict: bool = True):
+        """Build the renderer.
+
+        With ``strict=False`` (used by the interactive Studio) a broken widget,
+        derived channel or event rule never takes the whole overlay down: it is
+        skipped and the reason is recorded in :attr:`widget_errors` (keyed by the
+        widget's index in ``config.widgets``) or :attr:`warnings`.
+        """
         self.config = config
         self.telemetry = telemetry
+        self.strict = strict
+        self.widget_errors: dict[int, str] = {}
+        self.warnings: list[str] = []
+        self.widget_index: dict[int, int] = {}  # id(widget) -> spec index
 
         if config.filters:
-            apply_filters(telemetry, config.filters)
-        add_derived(telemetry, config.derived)
+            if strict:
+                apply_filters(telemetry, config.filters)
+            else:
+                try:
+                    apply_filters(telemetry, config.filters)
+                except Exception as exc:  # noqa: BLE001
+                    self.warnings.append(f"filters: {exc}")
+        if strict:
+            add_derived(telemetry, config.derived)
+        else:
+            for item in config.derived or []:
+                try:
+                    add_derived(telemetry, [item])
+                except Exception as exc:  # noqa: BLE001
+                    key = item.get("key", "?") if isinstance(item, dict) else "?"
+                    self.warnings.append(f"derived '{key}': {exc}")
         window = _resolve_window(config, telemetry)
         self.timeline: Timeline = build_timeline(
             data_start=window.start,
@@ -63,7 +88,17 @@ class OverlayRenderer:
             holds=config.holds,
             max_duration=config.max_duration,
         )
-        self.events = build_events(telemetry, config.events)
+        if strict:
+            self.events = build_events(telemetry, config.events)
+        else:
+            self.events = []
+            rules = config.events if isinstance(config.events, (list, tuple)) else [config.events]
+            for rule in rules:
+                try:
+                    self.events.extend(build_events(telemetry, [rule] if isinstance(rule, (dict, str)) else rule))
+                except Exception as exc:  # noqa: BLE001
+                    self.warnings.append(f"event: {exc}")
+            self.events.sort(key=lambda e: float(e.get("time", 0.0)))
         self.background = (
             parse_color(config.background) if config.background else (0, 0, 0, 0)
         )
@@ -82,23 +117,23 @@ class OverlayRenderer:
 
         self.widgets: list[Widget] = []
         for index, spec in enumerate(config.widgets):
+            name = (
+                spec.get("name", spec.get("type", f"#{index}"))
+                if isinstance(spec, dict)
+                else f"#{index}"
+            )
             try:
                 widget = build_widget(spec, self.context)
+                if widget is not None:
+                    widget.prepare()
             except Exception as exc:
-                name = (
-                    spec.get("name", spec.get("type", f"#{index}"))
-                    if isinstance(spec, dict)
-                    else f"#{index}"
-                )
-                raise ValueError(f"widget '{name}': {exc}") from exc
+                if strict:
+                    raise ValueError(f"widget '{name}': {exc}") from exc
+                self.widget_errors[index] = str(exc)
+                continue
             if widget is not None:
                 self.widgets.append(widget)
-
-        for widget in self.widgets:
-            try:
-                widget.prepare()
-            except Exception as exc:
-                raise ValueError(f"widget '{widget.name}': {exc}") from exc
+                self.widget_index[id(widget)] = index
 
         # Pre-allocate the base canvas once; .copy() is a fast C memcpy.
         self._blank_template = Image.new("RGBA", self.size, self.background)
@@ -129,13 +164,25 @@ class OverlayRenderer:
             )
         return self.render_at(self.timeline.data_time(frame), frame)
 
-    def render_at(self, data_t: float, frame: int = 0) -> Image.Image:
-        """Render the overlay as it looks at a given data timestamp."""
+    def render_at(
+        self, data_t: float, frame: int = 0, *, skip: set[int] | None = None
+    ) -> Image.Image:
+        """Render the overlay as it looks at a given data timestamp.
+
+        ``skip`` holds spec indices (positions in ``config.widgets``) of widgets
+        to leave out - the Studio uses it to hide a widget while it is dragged.
+        """
         image = self.blank()
         for widget in self.widgets:
+            if skip and self.widget_index.get(id(widget)) in skip:
+                continue
             try:
                 widget.draw_on(image, data_t, frame)
             except Exception as exc:
+                if not self.strict:
+                    idx = self.widget_index.get(id(widget), -1)
+                    self.widget_errors.setdefault(idx, f"t={data_t:.3f} s: {exc}")
+                    continue
                 raise RuntimeError(
                     f"widget '{widget.name}' failed at t={data_t:.4f} s: {exc}"
                 ) from exc

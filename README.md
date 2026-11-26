@@ -60,10 +60,24 @@ Nahrazuje *Telemetry Extractor* – z libovolného vstupu (GoPro MP4, FIT, GPX, 
 
 ### 6. Vizuální interaktivní Web Studio (`studio`) + auto-update ikona na ploše
 Bez instalace Electronu nebo dalších závislostí – spustí plnohodnotný lokální **vizuální drag-and-drop editor** přímo v prohlížeči:
-- **Přímá manipulace na plátně**: kliknutím vybereš libovolný widget, táhnutím myší ho přesuneš s chytrým přichytáváním k okrajům/středu a ostatním widgetům (zarovnávací vodítka), taháním za 8 úchytů v rozích/hranách měníš velikost (u textových widgetů automaticky škáluje velikost písma!).
-- **Katalog `+ Přidat widget`**: jedním kliknutím přidáš kterýkoli z 24 widgetů s chytrým předvyplněním kanálů pro načtená data, můžeš začít i od prázdného plátna (`Vymazat vše`).
-- **Vizuální inspektor a vrstvy**: nastavení kanálu, barev, průhlednosti, pozadí karty, úhlu 3D kamery, velikosti písma, skrytí/zobrazení (`👁`), pořadí vrstev (`▲`/`▼`), duplikace (`Ctrl+D`), jemný posun šipkami a **Zpět / Znovu (`Ctrl+Z` / `Ctrl+Y`)** — vše okamžitě synchronizované s YAML editorem.
-- **Soubory a export**: přetahování souborů (drag & drop), přepínání vzorků/šablon/motivů, uložení Full-Res PNG, render průhledného videa i export dat (CSV/GPX/KML/MGJSON).
+- **Přímá manipulace na plátně**: kliknutím vybereš widget, táhnutím ho přesuneš – widget se při tažení **živě hýbe pod kurzorem** (bez čekání na server) s chytrým přichytáváním k okrajům, středu a ostatním widgetům. Taháním za 8 úchytů měníš velikost (u textových widgetů se automaticky škáluje písmo).
+- **Přetažení widgetu z galerie přímo na plátno**: v `+ Přidat widget` kartu buď klikneš (přidá se na výchozí místo), nebo ji **přetáhneš na plátno** a widget se vycentruje přesně tam, kam ho pustíš. Přetažený PNG/JPG obrázek se přidá jako widget `image`.
+- **Překrývající se widgety**: klik vybere nejmenší widget pod kurzorem, opakovaný klik (nebo `Alt`+klik) vybere widget pod ním.
+- **Šablony na libovolná data**: kteroukoli z 11 šablon lze načíst na jakýkoli log. Widget, kterému chybí kanál, celý overlay neshodí – zůstane na plátně označený ⚠ a v inspektoru mu jen vybereš jiný kanál.
+- **Vizuální inspektor a vrstvy**: kanály, barvy, průhlednost, pozadí karty, úhel 3D kamery, velikost písma, skrytí (`👁`), pořadí vrstev (`▲`/`▼`), duplikace a **Zpět / Znovu** — vše okamžitě synchronizované s YAML editorem.
+- **Soubory a export**: přetáhni soubor kamkoli do okna (CSV, XLSX, GPX, FIT, MP4, SRT…), přepínej vzorky/šablony/motivy, ulož Full-Res PNG, vyrenderuj průhledné video nebo exportuj data (CSV/GPX/KML/GeoJSON/MGJSON/SRT/JSON).
+
+| Ovládání Studia | Akce |
+|---|---|
+| Táhnutí myší | přesun (`Shift` = jen v jedné ose, `Alt` = bez přichytávání) |
+| Úchyty v rozích / hranách | změna velikosti (`Shift` = zachovat poměr stran) |
+| Opakovaný klik / `Alt`+klik | vybrat widget ležící pod vybraným |
+| Šipky | jemný posun (`Shift` = 20 px, `Alt` = 1 px); bez výběru posouvají čas |
+| `Tab` / `Shift+Tab` | další / předchozí widget |
+| `Delete`, `Ctrl+D` | smazat, duplikovat |
+| `Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z` | zpět, znovu |
+| Mezerník | Play / Pause (přehrává v reálném čase) |
+| `Esc` | zrušit tažení / zrušit výběr / zavřít galerii |
 
 ---
 

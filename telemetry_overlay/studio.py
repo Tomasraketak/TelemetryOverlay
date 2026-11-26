@@ -107,6 +107,9 @@ _STUDIO_HTML = r"""<!doctype html>
     padding: 2px 6px; border-radius: 999px; font-weight: 600;
   }
   .src { font-size: 12px; color: var(--dim); font-family: ui-monospace, monospace; }
+  #sourceLabel { flex: 0 1 auto; max-width: 300px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header select { max-width: 170px; }
+  header label.src { white-space: nowrap; }
   .spacer { flex: 1; min-width: 6px; }
   select, button, input[type="text"], input[type="number"] {
     background: var(--panel2); color: var(--text); border: 1px solid var(--border);
@@ -121,8 +124,10 @@ _STUDIO_HTML = r"""<!doctype html>
   button.toggle-on { background: rgba(255,159,10,0.18); border-color: rgba(255,159,10,0.55); color: #ffd089; }
   button:hover:not(:disabled) { filter: brightness(1.12); }
   button:disabled { opacity: 0.42; cursor: not-allowed; }
-  main { flex: 1; display: grid; grid-template-columns: 1fr 410px; min-height: 0; }
-  .stage-wrap { display: flex; flex-direction: column; padding: 10px 12px; gap: 9px; min-height: 0; }
+  main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 410px; min-height: 0; }
+  .stage-wrap { display: flex; flex-direction: column; padding: 10px 12px; gap: 9px; min-height: 0; min-width: 0; }
+  .stage-bar { min-width: 0; overflow: hidden; }
+  aside { min-width: 0; }
 
   /* Stage quick toolbar */
   .stage-bar {
@@ -148,7 +153,7 @@ _STUDIO_HTML = r"""<!doctype html>
   .canvas-box.dark-bg { background-image: none; background-color: #0d121d; }
   .canvas-box.drag-over { outline: 2px dashed var(--accent); outline-offset: -6px; }
   .drop-overlay {
-    position: absolute; inset: 0; background: rgba(11,15,23,0.88); display: none;
+    position: fixed; inset: 0; background: rgba(11,15,23,0.88); display: none;
     align-items: center; justify-content: center; flex-direction: column; gap: 8px;
     font-size: 18px; font-weight: 700; color: var(--accent); pointer-events: none; z-index: 40;
   }
@@ -159,11 +164,32 @@ _STUDIO_HTML = r"""<!doctype html>
     -webkit-user-drag: none; user-select: none;
   }
   #preview { width: 100%; height: 100%; display: block; pointer-events: none; -webkit-user-drag: none; }
+  #ghostLayer { position: absolute; inset: 0; pointer-events: none; }
+  .w-ghost {
+    position: absolute; pointer-events: none; background-repeat: no-repeat;
+    outline: 1px solid rgba(255,159,10,0.55); filter: drop-shadow(0 6px 14px rgba(0,0,0,0.55));
+  }
+  .w-ghost.empty { background: rgba(255,159,10,0.12); }
+  .stage-frame.drop-target { outline: 3px dashed var(--accent); outline-offset: 3px; }
+  .drag-chip {
+    position: fixed; z-index: 200; pointer-events: none; transform: translate(-50%, -130%);
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    padding: 6px 11px; border-radius: 8px; font-size: 12.5px; font-weight: 700; white-space: nowrap;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+  }
+  .drag-chip.ok { border-color: var(--accent); color: #ffd089; }
+  body.palette-dragging, body.palette-dragging * { cursor: copy !important; }
+  .warn {
+    color: #fde68a; background: rgba(234,179,8,0.12); border: 1px solid rgba(234,179,8,0.35);
+    border-radius: 8px; padding: 7px 10px; font-size: 12px; display: none;
+  }
+  .layer-warn { color: #fbbf24; font-size: 12px; }
   #editorLayer {
     position: absolute; inset: 0; z-index: 10; overflow: visible;
     touch-action: none; -webkit-user-drag: none;
   }
   #editorLayer.hidden-boxes .w-box:not(.selected) { border-color: transparent; background: transparent; }
+  #editorLayer.dragging-active .w-box:not(.dragging) { opacity: 0.45; }
   #editorLayer.edit-off { pointer-events: none; opacity: 0; }
 
   /* Subtle optional grid */
@@ -180,14 +206,16 @@ _STUDIO_HTML = r"""<!doctype html>
     border: 1px dashed rgba(56,189,248,0.22); pointer-events: none;
   }
 
-  /* Interactive widget hitboxes */
+  /* Interactive widget hitboxes (hit-testing is geometric, see widgetsAt) */
   .w-box {
-    position: absolute; cursor: move; touch-action: none; -webkit-user-drag: none;
+    position: absolute; pointer-events: none; touch-action: none; -webkit-user-drag: none;
     border: 1px dashed rgba(255,255,255,0.24);
-    border-radius: 4px;
+    border-radius: 4px; line-height: normal;
     transition: border-color 0.08s, background 0.08s;
   }
-  .w-box:hover {
+  .w-box.dragging { transition: none; background: transparent !important; }
+  .w-box.has-error { border: 1px dashed rgba(251,191,36,0.85); background: rgba(251,191,36,0.06); }
+  .w-box.hover {
     border: 1px solid rgba(56,189,248,0.85);
     background: rgba(56,189,248,0.06);
   }
@@ -202,20 +230,23 @@ _STUDIO_HTML = r"""<!doctype html>
     background: repeating-linear-gradient(-45deg, rgba(148,163,184,0.06), rgba(148,163,184,0.06) 6px, transparent 6px, transparent 12px);
   }
   .w-tag {
-    position: absolute; left: -2px; top: -22px;
+    position: absolute; left: -2px; top: -22px; line-height: 16px;
     background: var(--accent); color: #090d16; font-size: 10.5px; font-weight: 700;
     padding: 2px 7px; border-radius: 4px 4px 0 0; white-space: nowrap;
     pointer-events: none; display: none; letter-spacing: 0.02em;
   }
-  .w-box.selected .w-tag, .w-box:hover .w-tag { display: block; }
-  .w-box:not(.selected):hover .w-tag { background: var(--cyan); }
+  .w-tag.below { top: auto; bottom: -22px; border-radius: 0 0 4px 4px; }
+  .w-box.selected .w-tag, .w-box.hover .w-tag { display: block; }
+  .w-box:not(.selected).hover .w-tag { background: var(--cyan); }
+  .w-box.has-error .w-tag { background: #fbbf24; }
 
   /* 8 resize handles */
   .rh {
     position: absolute; width: 10px; height: 10px; background: #fff;
     border: 2px solid var(--accent); border-radius: 2px; display: none; z-index: 20;
-    touch-action: none; -webkit-user-drag: none;
+    touch-action: none; -webkit-user-drag: none; pointer-events: auto;
   }
+  .rh::after { content: ''; position: absolute; inset: -6px; }  /* bigger grab area */
   .w-box.selected .rh { display: block; }
   .rh.nw { left: -6px; top: -6px; cursor: nwse-resize; }
   .rh.n  { left: calc(50% - 5px); top: -6px; cursor: ns-resize; }
@@ -236,7 +267,7 @@ _STUDIO_HTML = r"""<!doctype html>
     position: absolute; left: 10px; bottom: 10px; z-index: 30; display: none;
     background: rgba(9,13,22,0.92); border: 1px solid var(--accent); color: #fff;
     font-family: ui-monospace, monospace; font-size: 11.5px; padding: 4px 9px; border-radius: 6px;
-    pointer-events: none;
+    pointer-events: none; line-height: 1.4; white-space: nowrap;
   }
 
   /* Timeline scrubber */
@@ -274,7 +305,7 @@ _STUDIO_HTML = r"""<!doctype html>
     font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); font-weight: 700;
   }
   .layer-list {
-    display: flex; flex-direction: column; gap: 4px; max-height: 195px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 4px; max-height: 32vh; min-height: 60px; overflow-y: auto;
     padding-right: 2px;
   }
   .layer-row {
@@ -382,6 +413,13 @@ _STUDIO_HTML = r"""<!doctype html>
   .card h3 { margin: 0; font-size: 13px; color: var(--text); }
   .form-grid { display: grid; grid-template-columns: 110px 1fr; gap: 8px; align-items: center; font-size: 12.5px; }
   .form-grid label { color: var(--dim); }
+  @media (min-width: 1100px) {
+    header { flex-wrap: nowrap; }
+    .stage-bar { flex-wrap: nowrap; }
+    .stage-hint { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  }
+  button { white-space: nowrap; }
+  .layer-list { flex-shrink: 0; }
   @media (max-width: 1020px) {
     main { grid-template-columns: 1fr; grid-template-rows: 54vh 1fr; }
     aside { border-left: none; border-top: 1px solid var(--border); }
@@ -402,7 +440,6 @@ _STUDIO_HTML = r"""<!doctype html>
   <span class="spacer"></span>
   <label class="src">Šablona: <select id="presetSel"></select></label>
   <label class="src">Motiv: <select id="themeSel"></select></label>
-  <button id="bgToggle">Pozadí: Šachovnice</button>
 </header>
 
 <main>
@@ -414,10 +451,11 @@ _STUDIO_HTML = r"""<!doctype html>
       <button id="editToggleBtn" class="toggle-on" title="Zobrazit/skrýt rámečky úprav">✎ Úpravy</button>
       <button id="snapToggleBtn" class="toggle-on" title="Přichytávat k okrajům a středu (Alt vypne)">🧲 Přichytávat</button>
       <button id="gridToggleBtn" title="Zobrazit pomocnou mřížku">⊞ Mřížka</button>
+      <button id="bgToggle" title="Pozadí plátna">▦ Šachovnice</button>
       <span class="sep"></span>
       <button id="dupSelBtn" disabled title="Duplikovat vybraný (Ctrl+D)">⧉ Duplikovat</button>
       <button id="delSelBtn" class="danger" disabled title="Smazat vybraný (Delete)">✕ Smazat</button>
-      <span class="stage-hint">Táhni myší = přesun · Rohy = velikost · Šipky = jemný posun</span>
+      <span class="stage-hint" title="Táhni = přesun (Shift = jen v jedné ose, Alt = bez přichytávání) · Úchyty = velikost (Shift = zachovat poměr) · Opakovaný klik nebo Alt+klik = vybrat widget pod ním · Šipky = posun (Shift ×5, Alt = 1 px) · Tab = další widget · Mezerník = Play · Esc = zrušit">Táhni = přesun · Úchyty = velikost · Klik znovu = widget pod ním · ⓘ</span>
     </div>
 
     <div class="canvas-box" id="canvasBox">
@@ -426,6 +464,7 @@ _STUDIO_HTML = r"""<!doctype html>
         <img id="preview" alt="Overlay Preview" draggable="false" />
         <div id="editorLayer" draggable="false">
           <div class="grid-overlay" id="gridOverlay"><div class="safe-margin"></div></div>
+          <div id="ghostLayer"></div>
           <div id="widgetBoxes"></div>
           <div id="snapGuides"></div>
         </div>
@@ -436,7 +475,7 @@ _STUDIO_HTML = r"""<!doctype html>
     <div class="scrub">
       <div class="scrub-row">
         <button id="playBtn" class="primary">Play</button>
-        <input id="slider" type="range" min="0" max="1000" value="350" />
+        <input id="slider" type="range" min="0" max="10000" value="3500" />
         <span class="mono" id="timeLabel">0.00 s</span>
       </div>
       <div class="events" id="eventsBar"></div>
@@ -454,6 +493,7 @@ _STUDIO_HTML = r"""<!doctype html>
 
     <div class="tab-pane active" id="editorTab">
       <div class="err" id="editorErr"></div>
+      <div class="warn" id="warnBox"></div>
       <div class="section-head">
         <span>Vrstvy / Widgety (<span id="widgetCount">0</span>)</span>
         <div class="row-actions">
@@ -470,7 +510,9 @@ _STUDIO_HTML = r"""<!doctype html>
       <textarea id="yamlEdit" spellcheck="false"></textarea>
       <div class="row-actions">
         <button id="applyBtn" class="primary">Použít YAML</button>
+        <button id="revertYamlBtn">Zahodit změny</button>
         <button id="downloadYaml">Stáhnout YAML</button>
+        <span id="yamlDirtyHint" class="src" style="display:none;color:#ffd089">● neuložené změny</span>
       </div>
     </div>
 
@@ -536,6 +578,7 @@ _STUDIO_HTML = r"""<!doctype html>
   <div class="modal">
     <div class="modal-head">
       <h2>+ Přidat widget</h2>
+      <span class="src">Klikni = přidat · <strong style="color:var(--accent)">přetáhni kartu na plátno</strong> = umístit</span>
       <input type="text" id="gallerySearch" placeholder="Hledat widget (např. motor, 3D, graf, budík, mapa)..." />
       <span class="spacer"></span>
       <button id="closeGalleryBtn">Zavřít (Esc)</button>
@@ -545,8 +588,11 @@ _STUDIO_HTML = r"""<!doctype html>
 </div>
 
 <script>
+const SLIDER_MAX = 10000;
 let meta = null, selectedIdx = null;
-let playing = false, timer = null, darkBg = false, inflight = false;
+let playing = false, timer = null, darkBg = false;
+let stateGen = 0, deferredMeta = null, mutSeq = 0, appliedSeq = 0;
+let activePreset = null, yamlDirty = false;
 let editMode = true, snapEnabled = true, gridEnabled = false;
 let undoStack = [], redoStack = [];
 let dragState = null;
@@ -595,7 +641,7 @@ function updateUndoButtons() {
 
 function currentTime() {
   if (!meta) return 0;
-  const frac = Number($('slider').value) / 1000;
+  const frac = Number($('slider').value) / SLIDER_MAX;
   return meta.t0 + frac * (meta.t1 - meta.t0);
 }
 
@@ -615,8 +661,21 @@ function fitStageFrame() {
 new ResizeObserver(fitStageFrame).observe($('canvasBox'));
 window.addEventListener('resize', fitStageFrame);
 
+function flushDeferredMeta() {
+  if (!deferredMeta || dragState) return;
+  const d = deferredMeta;
+  deferredMeta = null;
+  applyMetaToUI(d.data, d.opts);
+}
+
 function applyMetaToUI(data, opts = {}) {
+  if (dragState) {
+    // Never rebuild the canvas under an active mouse gesture
+    deferredMeta = { data, opts };
+    return;
+  }
   meta = data;
+  stateGen += 1;
   if (opts.selectedIdx !== undefined) {
     selectedIdx = opts.selectedIdx;
   } else if (selectedIdx !== null && (!meta.widgets || selectedIdx >= meta.widgets.length)) {
@@ -632,12 +691,12 @@ function applyMetaToUI(data, opts = {}) {
   }
   const pSel = $('presetSel');
   pSel.innerHTML = '<option value="__custom__">(Vlastní / Auto)</option>' +
-    meta.presets.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+    meta.presets.map(p => `<option value="${esc(p)}" ${p === activePreset ? 'selected' : ''}>${esc(p)}</option>`).join('');
 
   const tSel = $('themeSel');
   tSel.innerHTML = meta.themes.map(t => `<option value="${esc(t)}" ${t===meta.theme?'selected':''}>${esc(t)}</option>`).join('');
 
-  $('yamlEdit').value = meta.yaml;
+  if (!yamlDirty) $('yamlEdit').value = meta.yaml;
   renderChannels();
   renderEvents();
   $('exportBtns').innerHTML = meta.export_formats.map(f =>
@@ -648,9 +707,9 @@ function applyMetaToUI(data, opts = {}) {
     const peak = (meta.events || []).find(e => /peak|burn|ign/i.test(e.label));
     if (peak && meta.t1 > meta.t0) {
       const frac = Math.max(0, Math.min(1, (peak.time - meta.t0) / (meta.t1 - meta.t0)));
-      $('slider').value = Math.round(frac * 1000);
+      $('slider').value = Math.round(frac * SLIDER_MAX);
     } else {
-      $('slider').value = 350;
+      $('slider').value = Math.round(0.35 * SLIDER_MAX);
     }
   }
 
@@ -658,8 +717,17 @@ function applyMetaToUI(data, opts = {}) {
   renderWidgetBoxes();
   renderLayers();
   if (!opts.skipInspector) renderInspector();
+  renderWarnings();
   updateUndoButtons();
-  updateFrame();
+  requestFrame();
+}
+
+function renderWarnings() {
+  const box = $('warnBox');
+  const list = (meta && meta.warnings) || [];
+  if (!list.length) { box.style.display = 'none'; return; }
+  box.textContent = '⚠ ' + list.join(' · ');
+  box.style.display = 'block';
 }
 
 async function init() {
@@ -685,57 +753,196 @@ function renderEvents() {
 }
 
 window.jumpTo = (frac) => {
-  $('slider').value = Math.round(frac * 1000);
-  updateFrame();
+  $('slider').value = Math.round(frac * SLIDER_MAX);
+  requestFrame();
 };
 
-async function updateFrame() {
-  if (!meta || inflight) return;
-  inflight = true;
+// =========================================================================
+// Preview frame pump: never drops the latest request (old code silently
+// skipped updates while a request was in flight, leaving stale frames)
+// =========================================================================
+
+let frameBusy = false, frameWanted = false;
+let shownUrl = null, fullUrl = null, ghostUrl = null;
+let frameErrorShown = false;
+
+function releaseUrl(u) {
+  if (u && u !== shownUrl && u !== fullUrl && u !== ghostUrl) URL.revokeObjectURL(u);
+}
+
+function updateTimeLabel() {
+  if (!meta) return;
+  $('timeLabel').textContent = `${currentTime().toFixed(2)} s / ${meta.t1.toFixed(2)} s`;
+}
+
+function requestFrame() {
+  updateTimeLabel();
+  frameWanted = true;
+  pumpFrame();
+}
+// Backwards-compatible name used across the UI
+const updateFrame = requestFrame;
+
+async function pumpFrame() {
+  if (frameBusy || !frameWanted || !meta) return;
+  frameWanted = false;
+  frameBusy = true;
   const t = currentTime();
-  $('timeLabel').textContent = `${t.toFixed(2)} s / ${meta.t1.toFixed(2)} s`;
+  const gen = stateGen;
+  const hide = (ghost && ghost.releaseAtGen === null) ? ghost.idx : null;
   try {
-    const resp = await fetch(`/api/frame?t=${t.toFixed(4)}&_=${Date.now()}`);
+    const q = `t=${t.toFixed(4)}` + (hide !== null ? `&hide=${hide}` : '') + `&_=${Date.now()}`;
+    const resp = await fetch('/api/frame?' + q);
     if (resp.ok) {
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
-      const img = $('preview');
-      const old = img.dataset.url;
-      img.src = url;
-      img.dataset.url = url;
-      if (old) URL.revokeObjectURL(old);
+      await new Promise((resolve) => {
+        const img = $('preview');
+        img.onload = resolve;
+        img.onerror = resolve;
+        img.src = url;
+      });
+      const prevShown = shownUrl;
+      shownUrl = url;
+      if (hide === null) {
+        const prevFull = fullUrl;
+        fullUrl = url;
+        releaseUrl(prevFull);
+      }
+      releaseUrl(prevShown);
+      if (frameErrorShown) { frameErrorShown = false; showEditorError(''); }
+      onFrameShown(gen, hide);
+    } else {
+      const data = await resp.json().catch(() => ({}));
+      frameErrorShown = true;
+      showEditorError('Náhled se nepodařilo vykreslit: ' + (data.error || resp.status));
     }
-  } finally { inflight = false; }
+  } catch (err) {
+    // server stopped / network hiccup - keep the last good frame
+  } finally {
+    frameBusy = false;
+    if (frameWanted) pumpFrame();
+  }
+}
+
+function onFrameShown(gen, hide) {
+  // Drop the post-drop ghost only once a frame rendered from the committed
+  // state is on screen, so the widget never blinks out between the two.
+  if (ghost && ghost.releaseAtGen !== null && hide === null && gen >= ghost.releaseAtGen) {
+    destroyGhost();
+  }
 }
 
 // =========================================================================
-// Interactive Canvas Hitboxes, Drag-to-Move, 8-Handle Resize & Smart Snapping
+// Interactive canvas: geometry-based hit testing, drag-to-move with a live
+// "ghost" of the widget pixels, 8-handle resize and smart snapping
 // =========================================================================
+
+let ghost = null;  // { idx, el, orig, releaseAtGen }
+
+function designScale() {
+  const r = $('stageFrame').getBoundingClientRect();
+  const dw = (meta && meta.design_width) || 1920;
+  const dh = (meta && meta.design_height) || 1080;
+  return { r, dw, dh, sx: r.width / dw, sy: r.height / dh };
+}
+
+function clientToDesign(clientX, clientY) {
+  const { r, sx, sy } = designScale();
+  return { x: (clientX - r.left) / sx, y: (clientY - r.top) / sy };
+}
+
+function pctStyle(el, rect) {
+  const dw = meta.design_width || 1920;
+  const dh = meta.design_height || 1080;
+  el.style.left = (rect.x / dw * 100).toFixed(3) + '%';
+  el.style.top = (rect.y / dh * 100).toFixed(3) + '%';
+  el.style.width = (rect.w / dw * 100).toFixed(3) + '%';
+  el.style.height = (rect.h / dh * 100).toFixed(3) + '%';
+}
+
+function beginGhost(idx) {
+  const w = meta && meta.widgets[idx];
+  if (!w || !w.rect) return;
+  if (ghost && ghost.idx === idx && ghost.releaseAtGen === null) return;
+  destroyGhost();
+  const el = document.createElement('div');
+  el.className = 'w-ghost';
+  ghostUrl = fullUrl || shownUrl;
+  if (ghostUrl && w.visible && w.active) {
+    el.style.backgroundImage = `url("${ghostUrl}")`;
+  } else {
+    el.classList.add('empty');
+  }
+  $('ghostLayer').appendChild(el);
+  ghost = { idx, el, orig: { ...w.rect }, releaseAtGen: null };
+  moveGhost(w.rect);
+  requestFrame();  // re-render the stage without this widget underneath
+}
+
+function moveGhost(rect) {
+  if (!ghost) return;
+  pctStyle(ghost.el, rect);
+  const { r, dw, dh } = designScale();
+  const o = ghost.orig;
+  const kx = rect.w / Math.max(1, o.w);
+  const ky = rect.h / Math.max(1, o.h);
+  ghost.el.style.backgroundSize = `${(r.width * kx).toFixed(1)}px ${(r.height * ky).toFixed(1)}px`;
+  ghost.el.style.backgroundPosition = `${(-o.x / dw * r.width * kx).toFixed(1)}px ${(-o.y / dh * r.height * ky).toFixed(1)}px`;
+}
+
+function releaseGhostAfterCommit() {
+  if (!ghost) return;
+  ghost.releaseAtGen = stateGen + 1;
+}
+
+function destroyGhost() {
+  if (!ghost) return;
+  ghost.el.remove();
+  const g = ghostUrl;
+  ghost = null;
+  ghostUrl = null;
+  releaseUrl(g);
+}
 
 function renderWidgetBoxes() {
   const container = $('widgetBoxes');
   if (!meta || !meta.widgets) { container.innerHTML = ''; return; }
-  const dw = meta.design_width || 1920;
-  const dh = meta.design_height || 1080;
-
   container.innerHTML = meta.widgets.map(w => {
     if (!w.rect) return '';
     const isSel = w.index === selectedIdx;
-    const cls = ['w-box', isSel ? 'selected' : '', w.visible ? '' : 'is-hidden'].filter(Boolean).join(' ');
-    const style = `left:${(w.rect.x / dw * 100).toFixed(3)}%;top:${(w.rect.y / dh * 100).toFixed(3)}%;width:${(w.rect.w / dw * 100).toFixed(3)}%;height:${(w.rect.h / dh * 100).toFixed(3)}%;`;
+    const cls = ['w-box', isSel ? 'selected' : '', w.visible ? '' : 'is-hidden',
+                 (w.error || !w.active) && w.visible ? 'has-error' : ''].filter(Boolean).join(' ');
     const handles = ['nw','n','ne','e','se','s','sw','w'].map(d => `<div class="rh ${d}" data-dir="${d}"></div>`).join('');
-    return `<div class="${cls}" data-idx="${w.index}" style="${style}">
-      <div class="w-tag">${esc(w.name)} (${esc(w.type)})</div>
+    const tagBelow = w.rect.y < 30 ? ' below' : '';
+    return `<div class="${cls}" data-idx="${w.index}">
+      <div class="w-tag${tagBelow}">${(w.error || !w.active) && w.visible ? '⚠ ' : ''}${esc(w.name)} · ${esc(w.type)}</div>
       ${handles}
     </div>`;
   }).join('');
+  container.querySelectorAll('.w-box').forEach(el => {
+    const w = meta.widgets[Number(el.dataset.idx)];
+    if (w && w.rect) pctStyle(el, w.rect);
+  });
+}
+
+// Lightweight selection refresh: toggles classes instead of rebuilding the
+// boxes, so the element under the mouse is never destroyed mid-gesture.
+function refreshSelectionClasses() {
+  $('widgetBoxes').querySelectorAll('.w-box').forEach(el => {
+    el.classList.toggle('selected', Number(el.dataset.idx) === selectedIdx);
+  });
 }
 
 function selectWidget(idx, focusEditor = false) {
-  selectedIdx = (idx === null || idx === undefined) ? null : Number(idx);
-  renderWidgetBoxes();
-  renderLayers();
-  renderInspector();
+  const next = (idx === null || idx === undefined) ? null : Number(idx);
+  const changed = next !== selectedIdx;
+  selectedIdx = next;
+  refreshSelectionClasses();
+  if (changed) {
+    renderLayers();
+    renderInspector();
+  }
   updateUndoButtons();
   if (focusEditor) switchTab('editorTab');
 }
@@ -745,20 +952,30 @@ function switchTab(tabId) {
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === tabId));
 }
 
-function computeSnap(box, skipIdx, dw, dh) {
-  const thresh = 14;
-  const vTargets = [Math.round(dw * 0.04), dw / 2, Math.round(dw * 0.96)];
-  const hTargets = [Math.round(dh * 0.04), dh / 2, Math.round(dh * 0.96)];
+function snapTargets(skipIdx, dw, dh) {
+  const v = [Math.round(dw * 0.04), dw / 2, Math.round(dw * 0.96), 0, dw];
+  const h = [Math.round(dh * 0.04), dh / 2, Math.round(dh * 0.96), 0, dh];
   for (const w of (meta.widgets || [])) {
     if (w.index === skipIdx || !w.rect || !w.visible) continue;
-    vTargets.push(w.rect.x, w.rect.x + w.rect.w / 2, w.rect.x + w.rect.w);
-    hTargets.push(w.rect.y, w.rect.y + w.rect.h / 2, w.rect.y + w.rect.h);
+    v.push(w.rect.x, w.rect.x + w.rect.w / 2, w.rect.x + w.rect.w);
+    h.push(w.rect.y, w.rect.y + w.rect.h / 2, w.rect.y + w.rect.h);
   }
+  return { v, h };
+}
+
+function snapThreshold() {
+  // ~7 screen pixels regardless of how large the stage is drawn
+  const { sx } = designScale();
+  return Math.max(4, 7 / Math.max(0.05, sx));
+}
+
+function computeSnap(box, skipIdx, dw, dh) {
+  const thresh = snapThreshold();
+  const { v: vTargets, h: hTargets } = snapTargets(skipIdx, dw, dh);
   let x = box.x, y = box.y;
   const guides = [];
 
-  // Snap X (left, center, right)
-  let bestDx = thresh + 1, snapX = null;
+  let bestDx = thresh, snapX = null;
   for (const tx of vTargets) {
     for (const [edge, offset] of [[x, 0], [x + box.w / 2, box.w / 2], [x + box.w, box.w]]) {
       const d = Math.abs(edge - tx);
@@ -767,8 +984,7 @@ function computeSnap(box, skipIdx, dw, dh) {
   }
   if (snapX) { x = snapX.newX; guides.push({ axis: 'v', pos: snapX.line / dw * 100 }); }
 
-  // Snap Y (top, middle, bottom)
-  let bestDy = thresh + 1, snapY = null;
+  let bestDy = thresh, snapY = null;
   for (const ty of hTargets) {
     for (const [edge, offset] of [[y, 0], [y + box.h / 2, box.h / 2], [y + box.h, box.h]]) {
       const d = Math.abs(edge - ty);
@@ -776,8 +992,17 @@ function computeSnap(box, skipIdx, dw, dh) {
     }
   }
   if (snapY) { y = snapY.newY; guides.push({ axis: 'h', pos: snapY.line / dh * 100 }); }
-
   return { x, y, guides };
+}
+
+function snapValue(val, targets) {
+  const thresh = snapThreshold();
+  let best = thresh, out = null;
+  for (const t of targets) {
+    const d = Math.abs(val - t);
+    if (d < best) { best = d; out = t; }
+  }
+  return out;
 }
 
 function renderSnapGuides(guides) {
@@ -788,58 +1013,109 @@ function renderSnapGuides(guides) {
   ).join('');
 }
 
+// All widgets whose box contains the design-space point, smallest first
+function widgetsAt(pt) {
+  const pad = 4 / Math.max(0.05, designScale().sx);
+  return (meta.widgets || [])
+    .filter(w => w.rect && pt.x >= w.rect.x - pad && pt.x <= w.rect.x + w.rect.w + pad
+                        && pt.y >= w.rect.y - pad && pt.y <= w.rect.y + w.rect.h + pad)
+    .sort((a, b) => (a.rect.w * a.rect.h - b.rect.w * b.rect.h) || (b.index - a.index));
+}
+
 $('editorLayer').addEventListener('pointerdown', (e) => {
-  if (e.button !== 0) return;
+  if (e.button !== 0 || !editMode || !meta || dragState) return;
   $('canvasBox').classList.remove('drag-over');
-  if (!editMode || !meta) return;
-  const handle = e.target.closest('.rh');
-  const boxEl = e.target.closest('.w-box');
+  // Clicking the canvas takes keyboard focus away from inspector fields so
+  // Delete / arrows / Ctrl+Z act on the widget, not on a text input.
+  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
   e.preventDefault();
-  if (!boxEl) {
-    selectWidget(null);
-    return;
+  commitNudgeNow();
+
+  const handle = e.target.closest('.rh');
+  let idx = null, mode = 'move', dir = null, cycleList = null;
+  const wasSelected = selectedIdx;
+
+  if (handle) {
+    idx = Number(handle.closest('.w-box').dataset.idx);
+    mode = 'resize';
+    dir = handle.dataset.dir;
+  } else {
+    const hits = widgetsAt(clientToDesign(e.clientX, e.clientY));
+    if (!hits.length) { selectWidget(null); return; }
+    const selHit = hits.find(w => w.index === selectedIdx);
+    if (selHit && !e.altKey) {
+      idx = selHit.index;
+      if (hits.length > 1) cycleList = hits.map(w => w.index);
+    } else if (selHit && e.altKey && hits.length > 1) {
+      // Alt+click: pick the next widget underneath immediately
+      const pos = hits.findIndex(w => w.index === selectedIdx);
+      idx = hits[(pos + 1) % hits.length].index;
+    } else {
+      idx = hits[0].index;
+    }
   }
-  const idx = Number(boxEl.dataset.idx);
+
   const w = meta.widgets[idx];
   if (!w || !w.rect) return;
   if (selectedIdx !== idx) selectWidget(idx);
 
-  const stageRect = $('stageFrame').getBoundingClientRect();
+  const layer = $('editorLayer');
+  try { layer.setPointerCapture(e.pointerId); } catch (_) {}
   dragState = {
-    idx,
-    mode: handle ? 'resize' : 'move',
-    dir: handle ? handle.dataset.dir : null,
+    idx, mode, dir,
+    pointerId: e.pointerId,
     startClientX: e.clientX,
     startClientY: e.clientY,
-    stageW: stageRect.width,
-    stageH: stageRect.height,
     orig: { ...w.rect },
     cur: { ...w.rect },
     origin: w.origin ? { ...w.origin } : { x: w.rect.x, y: w.rect.y },
     resizeMode: w.resize_mode || 'box',
     moved: false,
+    cycleList,
+    wasSelected,
     boxEl: $('widgetBoxes').querySelector(`.w-box[data-idx="${idx}"]`),
   };
-  window.addEventListener('pointermove', onStagePointerMove);
-  window.addEventListener('pointerup', onStagePointerUp);
 });
 
-function onStagePointerMove(e) {
-  if (!dragState || !meta) return;
-  const dw = meta.design_width || 1920;
-  const dh = meta.design_height || 1080;
-  const dx = (e.clientX - dragState.startClientX) / dragState.stageW * dw;
-  const dy = (e.clientY - dragState.startClientY) / dragState.stageH * dh;
-  if (Math.abs(dx) > 2 || Math.abs(dy) > 2) dragState.moved = true;
-  if (!dragState.moved) return;
-
+$('editorLayer').addEventListener('pointermove', (e) => {
+  if (!dragState || e.pointerId !== dragState.pointerId || !meta) {
+    // Hover cursor feedback for overlapping boxes (geometry based)
+    if (!dragState && editMode && meta && !e.buttons) {
+      const hits = widgetsAt(clientToDesign(e.clientX, e.clientY));
+      $('editorLayer').style.cursor = hits.length ? 'move' : 'default';
+      const hoverIdx = hits.length ? (hits.find(w => w.index === selectedIdx) || hits[0]).index : null;
+      $('widgetBoxes').querySelectorAll('.w-box').forEach(el => {
+        el.classList.toggle('hover', Number(el.dataset.idx) === hoverIdx);
+      });
+    }
+    return;
+  }
+  const { dw, dh, sx, sy } = designScale();
+  const sdx = e.clientX - dragState.startClientX;
+  const sdy = e.clientY - dragState.startClientY;
+  if (!dragState.moved) {
+    if (Math.hypot(sdx, sdy) < 3) return;
+    dragState.moved = true;
+    beginGhost(dragState.idx);
+    if (dragState.boxEl) dragState.boxEl.classList.add('dragging');
+    $('editorLayer').classList.add('dragging-active');
+  }
+  const dx = sdx / sx;
+  const dy = sdy / sy;
   const o = dragState.orig;
   let nx = o.x, ny = o.y, nw = o.w, nh = o.h;
+  const doSnap = snapEnabled && !e.altKey;
 
   if (dragState.mode === 'move') {
     nx = o.x + dx;
     ny = o.y + dy;
-    if (snapEnabled && !e.altKey) {
+    if (e.shiftKey) {  // constrain to one axis
+      if (Math.abs(dx) > Math.abs(dy)) ny = o.y; else nx = o.x;
+    }
+    // keep at least a 30 px grab area on the canvas
+    nx = Math.max(-nw + 30, Math.min(dw - 30, nx));
+    ny = Math.max(-nh + 30, Math.min(dh - 30, ny));
+    if (doSnap) {
       const sn = computeSnap({ x: nx, y: ny, w: nw, h: nh }, dragState.idx, dw, dh);
       nx = sn.x; ny = sn.y;
       renderSnapGuides(sn.guides);
@@ -848,78 +1124,169 @@ function onStagePointerMove(e) {
     }
   } else {
     const dir = dragState.dir;
-    const minW = 48, minH = 26;
-    if (dir.includes('e')) nw = Math.max(minW, o.w + dx);
-    if (dir.includes('s')) nh = Math.max(minH, o.h + dy);
+    const minW = 40, minH = 24;
+    const T = doSnap ? snapTargets(dragState.idx, dw, dh) : null;
+    const guides = [];
+    if (dir.includes('e')) {
+      let right = o.x + o.w + dx;
+      const s = T && snapValue(right, T.v);
+      if (s !== null && s !== undefined && T) { right = s; guides.push({ axis: 'v', pos: s / dw * 100 }); }
+      nw = Math.max(minW, right - o.x);
+    }
+    if (dir.includes('s')) {
+      let bottom = o.y + o.h + dy;
+      const s = T && snapValue(bottom, T.h);
+      if (s !== null && s !== undefined && T) { bottom = s; guides.push({ axis: 'h', pos: s / dh * 100 }); }
+      nh = Math.max(minH, bottom - o.y);
+    }
     if (dir.includes('w')) {
-      const candW = Math.max(minW, o.w - dx);
-      nx = o.x + (o.w - candW);
-      nw = candW;
+      let left = o.x + dx;
+      const s = T && snapValue(left, T.v);
+      if (s !== null && s !== undefined && T) { left = s; guides.push({ axis: 'v', pos: s / dw * 100 }); }
+      nw = Math.max(minW, o.x + o.w - left);
+      nx = o.x + o.w - nw;
     }
     if (dir.includes('n')) {
-      const candH = Math.max(minH, o.h - dy);
-      ny = o.y + (o.h - candH);
-      nh = candH;
+      let top = o.y + dy;
+      const s = T && snapValue(top, T.h);
+      if (s !== null && s !== undefined && T) { top = s; guides.push({ axis: 'h', pos: s / dh * 100 }); }
+      nh = Math.max(minH, o.y + o.h - top);
+      ny = o.y + o.h - nh;
     }
-    // Keep aspect ratio when holding Shift on a corner handle (or for text widgets)
+    // Keep aspect ratio with Shift on a corner, and always for text widgets
     const isCorner = dir.length === 2;
     if ((e.shiftKey && isCorner) || dragState.resizeMode === 'text') {
       const aspect = o.w / Math.max(1, o.h);
       if (dir === 'e' || dir === 'w') {
         nh = Math.max(minH, nw / aspect);
-      } else {
+        ny = o.y + (o.h - nh) / 2;
+      } else if (dir === 'n' || dir === 's') {
         nw = Math.max(minW, nh * aspect);
-        if (dir.includes('w')) nx = o.x + (o.w - nw);
+        nx = o.x + (o.w - nw) / 2;
+        if (dir === 'n') ny = o.y + o.h - nh;
+      } else {
+        // corner: follow whichever axis moved further
+        const k = Math.max(nw / o.w, nh / o.h);
+        nw = Math.max(minW, o.w * k);
+        nh = Math.max(minH, o.h * k);
+        nx = dir.includes('w') ? o.x + o.w - nw : o.x;
+        ny = dir.includes('n') ? o.y + o.h - nh : o.y;
       }
+      guides.length = 0;
     }
-    renderSnapGuides([]);
+    renderSnapGuides(guides);
   }
 
   dragState.cur = { x: nx, y: ny, w: nw, h: nh };
-  const el = dragState.boxEl;
-  if (el) {
-    el.style.left = (nx / dw * 100).toFixed(3) + '%';
-    el.style.top = (ny / dh * 100).toFixed(3) + '%';
-    el.style.width = (nw / dw * 100).toFixed(3) + '%';
-    el.style.height = (nh / dh * 100).toFixed(3) + '%';
-  }
+  if (dragState.boxEl) pctStyle(dragState.boxEl, dragState.cur);
+  moveGhost(dragState.cur);
   const hud = $('dragHud');
   hud.style.display = 'block';
   hud.textContent = dragState.mode === 'move'
-    ? `X: ${Math.round(nx)} px   Y: ${Math.round(ny)} px`
-    : `${Math.round(nw)} × ${Math.round(nh)} px   (X: ${Math.round(nx)}, Y: ${Math.round(ny)})`;
-}
+    ? `X: ${Math.round(nx)}  Y: ${Math.round(ny)}   (Shift = osa, Alt = bez přichytávání)`
+    : `${Math.round(nw)} × ${Math.round(nh)} px   (Shift = zachovat poměr)`;
+});
 
-async function onStagePointerUp() {
-  window.removeEventListener('pointermove', onStagePointerMove);
-  window.removeEventListener('pointerup', onStagePointerUp);
-  renderSnapGuides([]);
-  $('dragHud').style.display = 'none';
-  if (!dragState) return;
+function endDrag(e, cancelled = false) {
+  if (!dragState || (e && e.pointerId !== undefined && e.pointerId !== dragState.pointerId)) return;
   const st = dragState;
   dragState = null;
-  if (!st.moved) return;
+  try { $('editorLayer').releasePointerCapture(st.pointerId); } catch (_) {}
+  renderSnapGuides([]);
+  $('dragHud').style.display = 'none';
+  if (st.boxEl) st.boxEl.classList.remove('dragging');
+  $('editorLayer').classList.remove('dragging-active');
 
-  const dx = st.cur.x - st.orig.x;
-  const dy = st.cur.y - st.orig.y;
+  if (!st.moved) {
+    // Plain click on an already-selected widget that overlaps others:
+    // cycle to the next one underneath (Photoshop-style click-through).
+    if (st.cycleList && st.wasSelected === st.idx) {
+      const pos = st.cycleList.indexOf(st.idx);
+      selectWidget(st.cycleList[(pos + 1) % st.cycleList.length]);
+    }
+    flushDeferredMeta();
+    return;
+  }
+  if (cancelled) {
+    destroyGhost();
+    if (st.boxEl) pctStyle(st.boxEl, st.orig);
+    requestFrame();
+    flushDeferredMeta();
+    return;
+  }
+  commitGeometry(st.idx, st.orig, st.cur, st.origin, st.resizeMode, st.mode === 'resize');
+}
 
-  if (st.resizeMode === 'text') {
+$('editorLayer').addEventListener('pointerup', (e) => endDrag(e));
+$('editorLayer').addEventListener('pointercancel', (e) => endDrag(e, true));
+$('editorLayer').addEventListener('lostpointercapture', (e) => { if (dragState) endDrag(e); });
+$('editorLayer').addEventListener('pointerleave', () => {
+  $('widgetBoxes').querySelectorAll('.w-box.hover').forEach(el => el.classList.remove('hover'));
+});
+
+// Turn an edited design-space rect into a spec patch and send it
+async function commitGeometry(idx, orig, cur, origin, resizeMode, isResize) {
+  let res;
+  if (resizeMode === 'text') {
+    // Text widgets are positioned by their anchor point (origin) and sized by
+    // font size: keep the origin at the same relative spot inside the box.
+    const ratio = isResize ? (cur.h / Math.max(1, orig.h)) : 1;
     const patch = {
-      x: Math.round(st.origin.x + dx),
-      y: Math.round(st.origin.y + dy),
+      x: Math.round(cur.x + (origin.x - orig.x) * ratio),
+      y: Math.round(cur.y + (origin.y - orig.y) * ratio),
     };
-    const ratio = st.mode === 'resize' ? (st.cur.h / Math.max(1, st.orig.h)) : null;
-    await updateWidgetOnServer(st.idx, patch, { resize_ratio: ratio, pushHistory: true });
+    releaseGhostAfterCommit();
+    res = await updateWidgetOnServer(idx, patch, { resize_ratio: isResize ? ratio : null, pushHistory: true });
   } else {
     const patch = {
-      x: Math.round(st.cur.x),
-      y: Math.round(st.cur.y),
-      width: Math.round(st.cur.w),
-      height: Math.round(st.cur.h),
+      x: Math.round(cur.x), y: Math.round(cur.y),
+      width: Math.round(cur.w), height: Math.round(cur.h),
       anchor: 'top-left',
     };
-    await updateWidgetOnServer(st.idx, patch, { pushHistory: true });
+    releaseGhostAfterCommit();
+    res = await updateWidgetOnServer(idx, patch, { pushHistory: true });
   }
+  if (!res) { destroyGhost(); requestFrame(); }
+}
+
+// Arrow-key nudging: moves instantly on screen, commits once after a pause
+let nudge = null;  // { idx, dx, dy, timer, orig, origin, resizeMode }
+
+function nudgeSelected(dx, dy) {
+  if (selectedIdx === null || !meta) return;
+  const w = meta.widgets[selectedIdx];
+  if (!w || !w.rect) return;
+  if (!nudge || nudge.idx !== selectedIdx) {
+    commitNudgeNow();
+    nudge = {
+      idx: selectedIdx, dx: 0, dy: 0, timer: null,
+      orig: { ...w.rect }, origin: w.origin ? { ...w.origin } : { x: w.rect.x, y: w.rect.y },
+      resizeMode: w.resize_mode || 'box',
+    };
+    beginGhost(selectedIdx);
+  }
+  nudge.dx += dx;
+  nudge.dy += dy;
+  const cur = { ...nudge.orig, x: nudge.orig.x + nudge.dx, y: nudge.orig.y + nudge.dy };
+  const el = $('widgetBoxes').querySelector(`.w-box[data-idx="${nudge.idx}"]`);
+  if (el) pctStyle(el, cur);
+  moveGhost(cur);
+  const hud = $('dragHud');
+  hud.style.display = 'block';
+  hud.textContent = `X: ${Math.round(cur.x)}  Y: ${Math.round(cur.y)}`;
+  clearTimeout(nudge.timer);
+  nudge.timer = setTimeout(commitNudgeNow, 450);
+}
+
+function commitNudgeNow() {
+  if (!nudge) return;
+  const n = nudge;
+  nudge = null;
+  clearTimeout(n.timer);
+  $('dragHud').style.display = 'none';
+  if (!n.dx && !n.dy) { destroyGhost(); requestFrame(); return; }
+  const cur = { ...n.orig, x: n.orig.x + n.dx, y: n.orig.y + n.dy };
+  commitGeometry(n.idx, n.orig, cur, n.origin, n.resizeMode, false);
 }
 
 // =========================================================================
@@ -929,12 +1296,25 @@ async function onStagePointerUp() {
 async function widgetApi(endpoint, payload, { pushHistory = true, keepSelected = undefined, skipInspector = false } = {}) {
   showEditorError('');
   if (pushHistory) pushUndo();
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...payload, t: currentTime() }),
-  });
-  const data = await res.json();
+  const seq = ++mutSeq;
+  let res, data;
+  try {
+    res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, t: currentTime() }),
+    });
+    data = await res.json();
+  } catch (err) {
+    if (pushHistory && undoStack.length) undoStack.pop();
+    updateUndoButtons();
+    showEditorError('Studio server neodpovídá – běží ještě okno s Telemetry Overlay? (' + err + ')');
+    renderWidgetBoxes();
+    return null;
+  }
+  // Ignore responses that arrive after a newer mutation was already applied
+  if (seq < appliedSeq) return data;
+  appliedSeq = seq;
   if (!res.ok) {
     if (pushHistory && undoStack.length) undoStack.pop();
     updateUndoButtons();
@@ -992,9 +1372,10 @@ function renderLayers() {
     const sel = w.index === selectedIdx ? 'selected' : '';
     const inact = (!w.visible || !w.active) ? 'inactive' : '';
     const eye = w.visible ? '👁' : '🚫';
-    const warn = !w.active ? ' title="Volitelný widget není aktivní (chybí kanál v datech)"' : '';
+    const problem = w.visible && (w.error || !w.active);
+    const warn = problem ? ` title="${esc(w.error || 'Widget není aktivní (chybí kanál v datech)')}"` : '';
     return `<div class="layer-row ${sel} ${inact}" data-idx="${w.index}"${warn}>
-      <span class="layer-name">${esc(w.name)}</span>
+      ${problem ? '<span class="layer-warn">⚠</span>' : ''}<span class="layer-name">${esc(w.name)}</span>
       <span class="layer-type">${esc(w.type)}</span>
       <div class="layer-btns">
         <button data-act="vis" title="Zobrazit/skrýt">${eye}</button>
@@ -1135,10 +1516,14 @@ function renderInspector() {
        </div>`
     : '';
 
+  const errHtml = (w.visible && (w.error || !w.active))
+    ? `<div class="err" style="display:block">⚠ Widget se nevykresluje: ${esc(w.error || 'chybí kanál v datech')}<br><span style="color:#cbd5e1">Vyber níže jiný kanál, nebo widget smaž.</span></div>`
+    : '';
   wrap.innerHTML = `
+    ${errHtml}
     <div class="insp-card">
       <div class="insp-title">
-        <span>Pozice a velikost (1920×1080)</span>
+        <span>Pozice a velikost (${meta.design_width || 1920}×${meta.design_height || 1080})</span>
         <div class="row-actions">
           <button type="button" class="ghost" id="centerHBtn" title="Zarovnat vodorovně na střed" style="font-size:11px">↔ Střed</button>
           <button type="button" class="ghost" id="centerVBtn" title="Zarovnat svisle na střed" style="font-size:11px">↕ Střed</button>
@@ -1349,7 +1734,9 @@ $('addWidgetSideBtn').addEventListener('click', openGallery);
 $('closeGalleryBtn').addEventListener('click', closeGallery);
 $('galleryModal').addEventListener('click', (e) => { if (e.target === $('galleryModal')) closeGallery(); });
 $('gallerySearch').addEventListener('input', (e) => renderGallery(e.target.value));
+let suppressCardClick = false;
 $('galleryBody').addEventListener('click', async (e) => {
+  if (suppressCardClick) return;
   const card = e.target.closest('.w-card[data-add]');
   if (!card || card.disabled) return;
   const wtype = card.dataset.add;
@@ -1406,69 +1793,104 @@ $('clearAllBtn').addEventListener('click', () => {
 });
 
 // Global keyboard shortcuts (when not typing in a field)
+function isTypingTarget(el) {
+  if (!el) return false;
+  if (el.isContentEditable) return true;
+  const tag = (el.tagName || '').toLowerCase();
+  if (tag === 'textarea' || tag === 'select') return true;
+  if (tag !== 'input') return false;
+  const type = (el.type || 'text').toLowerCase();
+  return !['checkbox', 'button', 'color', 'file', 'radio', 'submit', 'reset'].includes(type);
+}
+
 window.addEventListener('keydown', (e) => {
-  const tag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
-  const typing = tag === 'input' || tag === 'textarea' || tag === 'select';
+  const typing = isTypingTarget(document.activeElement);
+  const galleryOpen = $('galleryModal').classList.contains('open');
   if (e.key === 'Escape') {
-    if ($('galleryModal').classList.contains('open')) { closeGallery(); return; }
-    if (!typing) selectWidget(null);
+    if (galleryOpen) { closeGallery(); return; }
+    if (dragState) { endDrag({ pointerId: dragState.pointerId }, true); return; }
+    if (typing) { document.activeElement.blur(); return; }
+    selectWidget(null);
     return;
   }
-  if (typing) return;
+  if (typing || galleryOpen) return;
 
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === 'z') {
     e.preventDefault();
+    commitNudgeNow();
     if (e.shiftKey) $('redoBtn').click(); else $('undoBtn').click();
     return;
   }
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
-    e.preventDefault(); $('redoBtn').click(); return;
+  if (mod && e.key.toLowerCase() === 'y') {
+    e.preventDefault(); commitNudgeNow(); $('redoBtn').click(); return;
   }
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd' && selectedIdx !== null) {
-    e.preventDefault(); $('dupSelBtn').click(); return;
+  if (mod && e.key.toLowerCase() === 'd' && selectedIdx !== null) {
+    e.preventDefault(); commitNudgeNow(); $('dupSelBtn').click(); return;
   }
   if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIdx !== null) {
-    e.preventDefault(); $('delSelBtn').click(); return;
+    e.preventDefault(); commitNudgeNow(); $('delSelBtn').click(); return;
   }
-  if (e.key === ' ' && !$('galleryModal').classList.contains('open')) {
+  if (e.key === ' ') {
     e.preventDefault(); $('playBtn').click(); return;
   }
-  if (selectedIdx !== null && meta && meta.widgets[selectedIdx] && ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
+  if (e.key === 'Tab' && meta && meta.widgets && meta.widgets.length) {
+    // Tab / Shift+Tab cycles through widgets
     e.preventDefault();
-    const step = e.shiftKey ? 20 : 4;
+    const n = meta.widgets.length;
+    const cur = selectedIdx === null ? (e.shiftKey ? 0 : -1) : selectedIdx;
+    selectWidget(((cur + (e.shiftKey ? -1 : 1)) % n + n) % n);
+    return;
+  }
+  if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
+    if (selectedIdx === null) {
+      // No selection: arrows scrub the timeline
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        const step = e.shiftKey ? SLIDER_MAX / 20 : SLIDER_MAX / 200;
+        const v = Number($('slider').value) + (e.key === 'ArrowLeft' ? -step : step);
+        $('slider').value = Math.max(0, Math.min(SLIDER_MAX, Math.round(v)));
+        requestFrame();
+      }
+      return;
+    }
+    e.preventDefault();
+    const step = e.shiftKey ? 20 : (e.altKey ? 1 : 4);
     const dx = e.key === 'ArrowLeft' ? -step : (e.key === 'ArrowRight' ? step : 0);
     const dy = e.key === 'ArrowUp' ? -step : (e.key === 'ArrowDown' ? step : 0);
-    const w = meta.widgets[selectedIdx];
-    if (!w.rect) return;
-    if (w.resize_mode === 'text' && w.origin) {
-      updateWidgetOnServer(selectedIdx, { x: Math.round(w.origin.x + dx), y: Math.round(w.origin.y + dy) });
-    } else {
-      updateWidgetOnServer(selectedIdx, {
-        x: Math.round(w.rect.x + dx), y: Math.round(w.rect.y + dy),
-        width: Math.round(w.rect.w), height: Math.round(w.rect.h), anchor: 'top-left',
-      });
-    }
+    nudgeSelected(dx, dy);
   }
 });
 
-$('slider').addEventListener('input', updateFrame);
-$('playBtn').addEventListener('click', () => {
-  playing = !playing;
+$('slider').addEventListener('input', requestFrame);
+
+// Real-time playback: advances by wall-clock time, one frame request at a time
+let lastPlayTick = 0;
+function setPlaying(on) {
+  playing = on;
   $('playBtn').textContent = playing ? 'Pause' : 'Play';
+  clearInterval(timer);
   if (playing) {
+    lastPlayTick = performance.now();
     timer = setInterval(() => {
-      let v = Number($('slider').value) + 8;
-      if (v > 1000) v = 0;
-      $('slider').value = v;
-      updateFrame();
-    }, 120);
-  } else { clearInterval(timer); }
-});
+      if (!meta || frameBusy) return;
+      const now = performance.now();
+      const dt = (now - lastPlayTick) / 1000;
+      lastPlayTick = now;
+      const span = Math.max(1e-6, meta.t1 - meta.t0);
+      let v = Number($('slider').value) + dt / span * SLIDER_MAX;
+      if (v > SLIDER_MAX) v = 0;
+      $('slider').value = Math.round(v);
+      requestFrame();
+    }, 33);
+  }
+}
+$('playBtn').addEventListener('click', () => setPlaying(!playing));
 
 $('bgToggle').addEventListener('click', () => {
   darkBg = !darkBg;
   $('canvasBox').classList.toggle('dark-bg', darkBg);
-  $('bgToggle').textContent = darkBg ? 'Pozadí: Tmavé' : 'Pozadí: Šachovnice';
+  $('bgToggle').textContent = darkBg ? '■ Tmavé' : '▦ Šachovnice';
 });
 
 async function uploadFile(file) {
@@ -1487,6 +1909,7 @@ async function uploadFile(file) {
       return;
     }
     undoStack = []; redoStack = [];
+    activePreset = null;
     applyMetaToUI(data, { resetSlider: true, selectedIdx: null });
   } catch (err) {
     showEditorError(String(err));
@@ -1502,67 +1925,148 @@ $('fileInput').addEventListener('change', (e) => {
 $('assetInput').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
   e.target.value = '';
-  if (!f || pendingAssetTarget === null) return;
+  const target = pendingAssetTarget;
+  pendingAssetTarget = null;
+  if (!f || target === null) return;
+  try {
+    const path = await uploadAsset(f);
+    await updateWidgetOnServer(target, { path });
+  } catch (err) {
+    showEditorError(String(err.message || err));
+  }
+});
+
+// =========================================================================
+// File drag & drop (Explorer / Finder -> anywhere in the window)
+// =========================================================================
+
+const box = $('canvasBox');
+const IMAGE_EXT = /\.(png|jpe?g|webp)$/i;
+
+// Block every in-page native HTML5 drag (images, links, selected text) so a
+// mouse gesture inside the Studio can never be mistaken for a file drop.
+document.addEventListener('dragstart', (e) => {
+  const t = e.target;
+  if (t && t.closest && t.closest('textarea, input[type="text"], input[type="number"]')) return;
+  e.preventDefault();
+});
+
+let fileDragTimer = null;
+const hasFiles = (e) => !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files'));
+function showDropOverlay(on) { box.classList.toggle('drag-over', on); }
+
+window.addEventListener('dragover', (e) => {
+  if (!hasFiles(e)) return;
+  // preventDefault also stops the browser from navigating away to the file
+  e.preventDefault();
+  if (dragState || paletteDrag) { e.dataTransfer.dropEffect = 'none'; return; }
+  e.dataTransfer.dropEffect = 'copy';
+  showDropOverlay(true);
+  clearTimeout(fileDragTimer);
+  fileDragTimer = setTimeout(() => showDropOverlay(false), 300);
+});
+window.addEventListener('drop', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  clearTimeout(fileDragTimer);
+  showDropOverlay(false);
+  if (dragState || paletteDrag) return;
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!f) return;
+  if (IMAGE_EXT.test(f.name)) {
+    addImageFromFile(f, clientToDesignIfOnStage(e.clientX, e.clientY));
+  } else {
+    uploadFile(f);
+  }
+});
+
+function clientToDesignIfOnStage(clientX, clientY) {
+  const r = $('stageFrame').getBoundingClientRect();
+  if (clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom) return null;
+  const p = clientToDesign(clientX, clientY);
+  return { x: Math.round(p.x), y: Math.round(p.y) };
+}
+
+async function uploadAsset(f) {
   const res = await fetch('/api/upload_asset?filename=' + encodeURIComponent(f.name), {
     method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: f,
   });
-  const data = await res.json();
-  if (res.ok && data.path) {
-    await updateWidgetOnServer(pendingAssetTarget, { path: data.path });
-  } else {
-    showEditorError(data.error || 'Nepodařilo se nahrát obrázek');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.path) throw new Error(data.error || 'Nepodařilo se nahrát obrázek');
+  return data.path;
+}
+
+async function addImageFromFile(f, at) {
+  try {
+    const path = await uploadAsset(f);
+    const sel = meta && selectedIdx !== null ? meta.widgets[selectedIdx] : null;
+    if (sel && sel.type === 'image' && !at) {
+      await updateWidgetOnServer(selectedIdx, { path });
+    } else {
+      switchTab('editorTab');
+      await widgetApi('/api/widgets/add', { type: 'image', overrides: { path }, at });
+    }
+  } catch (err) {
+    showEditorError(String(err.message || err));
   }
-  pendingAssetTarget = null;
+}
+
+// =========================================================================
+// Drag widgets from the "+ Přidat widget" gallery straight onto the canvas
+// =========================================================================
+
+let paletteDrag = null;  // { type, label, icon, startX, startY, started, chip }
+
+$('galleryBody').addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  const card = e.target.closest('.w-card[data-add]');
+  if (!card || card.disabled) return;
+  const item = ((meta && meta.widget_catalog) || []).find(c => c.type === card.dataset.add) || {};
+  paletteDrag = {
+    type: card.dataset.add, label: item.label || card.dataset.add, icon: item.icon || '+',
+    startX: e.clientX, startY: e.clientY, started: false, chip: null,
+  };
 });
 
-const box = $('canvasBox');
-let internalPointerDown = false;
-let fileDragDepth = 0;
+window.addEventListener('pointermove', (e) => {
+  if (!paletteDrag) return;
+  if (!paletteDrag.started) {
+    if (Math.hypot(e.clientX - paletteDrag.startX, e.clientY - paletteDrag.startY) < 6) return;
+    paletteDrag.started = true;
+    closeGallery();
+    switchTab('editorTab');
+    const chip = document.createElement('div');
+    chip.className = 'drag-chip';
+    chip.innerHTML = `<span>${esc(paletteDrag.icon)}</span> ${esc(paletteDrag.label)}`;
+    document.body.appendChild(chip);
+    paletteDrag.chip = chip;
+    document.body.classList.add('palette-dragging');
+  }
+  paletteDrag.chip.style.left = e.clientX + 'px';
+  paletteDrag.chip.style.top = e.clientY + 'px';
+  const over = clientToDesignIfOnStage(e.clientX, e.clientY) !== null;
+  $('stageFrame').classList.toggle('drop-target', over);
+  paletteDrag.chip.classList.toggle('ok', over);
+});
 
-window.addEventListener('pointerdown', () => {
-  internalPointerDown = true;
-  fileDragDepth = 0;
-  box.classList.remove('drag-over');
-}, true);
-['pointerup', 'pointercancel', 'blur'].forEach(ev =>
-  window.addEventListener(ev, () => { internalPointerDown = false; }, true)
-);
-box.addEventListener('dragstart', (e) => { e.preventDefault(); return false; });
-
-const isExternalFileDrag = (e) => {
-  if (internalPointerDown || dragState) return false;
-  if (!e.dataTransfer) return false;
-  const types = Array.from(e.dataTransfer.types || []);
-  if (!types.includes('Files')) return false;
-  // Exclude browser-internal image/HTML drags (Chrome includes Files + text/html)
-  if (types.includes('text/html')) return false;
-  return true;
-};
-
-box.addEventListener('dragenter', (e) => {
-  if (!isExternalFileDrag(e)) return;
-  e.preventDefault();
-  fileDragDepth += 1;
-  box.classList.add('drag-over');
-});
-box.addEventListener('dragover', (e) => {
-  if (!isExternalFileDrag(e)) return;
-  e.preventDefault();
-  box.classList.add('drag-over');
-});
-box.addEventListener('dragleave', (e) => {
-  if (!isExternalFileDrag(e)) return;
-  fileDragDepth = Math.max(0, fileDragDepth - 1);
-  if (fileDragDepth === 0) box.classList.remove('drag-over');
-});
-box.addEventListener('drop', (e) => {
-  fileDragDepth = 0;
-  box.classList.remove('drag-over');
-  if (!isExternalFileDrag(e)) return;
-  e.preventDefault();
-  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-  if (f) uploadFile(f);
-});
+function endPaletteDrag(e, cancelled = false) {
+  if (!paletteDrag) return;
+  const pd = paletteDrag;
+  paletteDrag = null;
+  if (!pd.started) return;  // a plain click: handled by the click listener
+  pd.chip && pd.chip.remove();
+  document.body.classList.remove('palette-dragging');
+  $('stageFrame').classList.remove('drop-target');
+  suppressCardClick = true;
+  setTimeout(() => { suppressCardClick = false; }, 0);
+  if (cancelled || !e) return;
+  const at = clientToDesignIfOnStage(e.clientX, e.clientY);
+  if (!at) return;
+  widgetApi('/api/widgets/add', { type: pd.type, at });
+}
+window.addEventListener('pointerup', (e) => endPaletteDrag(e));
+window.addEventListener('pointercancel', () => endPaletteDrag(null, true));
+window.addEventListener('blur', () => endPaletteDrag(null, true));
 
 $('sampleSel').addEventListener('change', async (e) => {
   const name = e.target.value;
@@ -1571,10 +2075,13 @@ $('sampleSel').addEventListener('change', async (e) => {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ name }),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (res.ok) {
     undoStack = []; redoStack = [];
+    activePreset = null;
     applyMetaToUI(data, { resetSlider: true, selectedIdx: null });
+  } else {
+    showEditorError(data.error || 'Vzorek se nepodařilo načíst');
   }
 });
 
@@ -1592,14 +2099,31 @@ async function applyConfig(payload, { pushHistory = true, keepSelected = undefin
     $('errBox').textContent = data.error || 'Chyba konfigurace';
     $('errBox').style.display = 'block';
     showEditorError(data.error || 'Chyba konfigurace');
-    return;
+    return false;
   }
   applyMetaToUI(data, { selectedIdx: keepSelected !== undefined ? keepSelected : selectedIdx });
+  return true;
 }
 
-$('applyBtn').addEventListener('click', () => applyConfig({ yaml: $('yamlEdit').value }));
-$('presetSel').addEventListener('change', (e) => {
-  if (e.target.value !== '__custom__') applyConfig({ preset: e.target.value }, { keepSelected: null });
+$('yamlEdit').addEventListener('input', () => { yamlDirty = true; $('yamlDirtyHint').style.display = 'inline'; });
+$('applyBtn').addEventListener('click', async () => {
+  const ok = await applyConfig({ yaml: $('yamlEdit').value });
+  if (ok) { yamlDirty = false; $('yamlDirtyHint').style.display = 'none'; $('yamlEdit').value = meta.yaml; }
+});
+$('revertYamlBtn').addEventListener('click', () => {
+  yamlDirty = false; $('yamlDirtyHint').style.display = 'none';
+  if (meta) $('yamlEdit').value = meta.yaml;
+});
+$('presetSel').addEventListener('change', async (e) => {
+  const name = e.target.value;
+  if (name === '__custom__') return;
+  const ok = await applyConfig({ preset: name }, { keepSelected: null });
+  if (ok) {
+    activePreset = name;
+    $('presetSel').value = name;
+  } else {
+    $('presetSel').value = activePreset || '__custom__';
+  }
 });
 $('themeSel').addEventListener('change', (e) => applyConfig({ theme: e.target.value }));
 $('downloadYaml').addEventListener('click', () => {
@@ -1726,7 +2250,6 @@ def _clone_telemetry(tel: Telemetry) -> Telemetry:
         channels=new_channels,
         meta=copy.deepcopy(tel.meta),
         source=tel.source,
-        start_epoch=tel.start_epoch,
     )
 
 
@@ -1791,9 +2314,16 @@ class _StudioState:
     def _make_renderer(self, cfg: Config) -> OverlayRenderer:
         pw, ph = self.preview_size(cfg)
         preview_cfg = Config(**{**cfg.__dict__, "width": pw, "height": ph})
-        tel = _clone_telemetry(self.raw_telemetry) if (cfg.filters or cfg.derived) else self.raw_telemetry
+        # Always work on a private copy: filters, derived channels and inline
+        # widget expressions must never leak into the raw loaded log.
+        tel = _clone_telemetry(self.raw_telemetry)
+        renderer = OverlayRenderer(preview_cfg, tel, strict=False)
         self.telemetry = tel
-        return OverlayRenderer(preview_cfg, tel)
+        return renderer
+
+    def build_output_renderer(self, cfg: Config) -> OverlayRenderer:
+        """Renderer at the config's real output size (PNG / video export)."""
+        return OverlayRenderer(cfg, _clone_telemetry(self.raw_telemetry), strict=False)
 
     def commit_yaml_doc(self, doc: dict[str, Any]) -> None:
         new_yaml = yaml.safe_dump(doc, sort_keys=False, allow_unicode=True)
@@ -1802,6 +2332,30 @@ class _StudioState:
         self.yaml_text = new_yaml
         self.config = new_cfg
         self.renderer = new_renderer
+
+    def place_widget_centered(self, idx: int, cx: float, cy: float, data_t: float | None = None) -> None:
+        """Move widget ``idx`` so its measured box is centred on design point (cx, cy)."""
+        dw, dh = self.design_size()
+        t_probe = (
+            float(data_t) if data_t is not None
+            else (self.renderer.timeline.data_start + self.renderer.timeline.data_end) * 0.5
+        )
+        rects = measure_widget_rects(self.renderer, self.config.widgets, t_probe, design_w=dw, design_h=dh)
+        if not 0 <= idx < len(rects) or not rects[idx].get("rect"):
+            return
+        info = rects[idx]
+        r = info["rect"]
+        origin = info.get("origin") or {"x": r["x"], "y": r["y"]}
+        nx = max(0.0, min(dw - r["w"], cx - r["w"] / 2.0)) if r["w"] < dw else 0.0
+        ny = max(0.0, min(dh - r["h"], cy - r["h"] / 2.0)) if r["h"] < dh else 0.0
+        doc = self.parsed_doc()
+        spec = doc["widgets"][idx]
+        if info.get("resize_mode") == "text":
+            patch = {"x": origin["x"] + (nx - r["x"]), "y": origin["y"] + (ny - r["y"])}
+        else:
+            patch = {"x": nx, "y": ny, "width": r["w"], "height": r["h"], "anchor": "top-left"}
+        doc["widgets"][idx] = apply_widget_patch(spec, patch=patch, design_w=dw, design_h=dh)
+        self.commit_yaml_doc(doc)
 
     def parsed_doc(self) -> dict[str, Any]:
         doc = yaml.safe_load(self.yaml_text)
@@ -1870,6 +2424,7 @@ class _StudioState:
                 {"time": float(e["time"]), "label": str(e.get("label", ""))}
                 for e in self.renderer.events
             ],
+            "warnings": list(self.renderer.warnings),
             "yaml": self.yaml_text,
         }
 
@@ -1956,15 +2511,25 @@ def create_studio_server(
                 return
 
             if parsed.path == "/api/frame":
-                t = float(qs.get("t", ["0"])[0])
+                try:
+                    t = float(qs.get("t", ["0"])[0])
+                except ValueError:
+                    t = 0.0
                 full = qs.get("full", ["0"])[0] in ("1", "true", "yes")
-                with state.lock:
-                    if full and state.renderer.size != (state.config.width, state.config.height):
-                        tel = _clone_telemetry(state.raw_telemetry) if (state.config.filters or state.config.derived) else state.raw_telemetry
-                        full_renderer = OverlayRenderer(state.config, tel)
-                        img = full_renderer.render_at(t, frame=0)
-                    else:
-                        img = state.renderer.render_at(t, frame=0)
+                skip: set[int] = set()
+                for raw_idx in qs.get("hide", []):
+                    for part in raw_idx.split(","):
+                        if part.strip().lstrip("-").isdigit():
+                            skip.add(int(part))
+                try:
+                    with state.lock:
+                        if full and state.renderer.size != (state.config.width, state.config.height):
+                            img = state.build_output_renderer(state.config).render_at(t, frame=0)
+                        else:
+                            img = state.renderer.render_at(t, frame=0, skip=skip or None)
+                except Exception as exc:  # noqa: BLE001
+                    self._send_json(500, {"error": str(exc)})
+                    return
                 if not full and img.width > 1280:
                     from PIL import Image as _PILImage
                     nh = max(1, int(round(img.height * 1280 / img.width)))
@@ -2060,7 +2625,12 @@ def create_studio_server(
                     t_val = body.get("t")
                     with state.lock:
                         if "preset" in body:
-                            preset_p = _PRESET_DIR / f"{body['preset']}.yaml"
+                            preset_name = Path(str(body["preset"])).name
+                            preset_p = _PRESET_DIR / f"{preset_name}.yaml"
+                            if not preset_p.is_file():
+                                preset_p = _PRESET_DIR / f"{preset_name}.yml"
+                            if not preset_p.is_file():
+                                raise FileNotFoundError(f"šablona nenalezena: {preset_name}")
                             new_yaml = preset_p.read_text(encoding="utf-8")
                         elif "theme" in body:
                             parsed_cfg = yaml.safe_load(state.yaml_text) or {}
@@ -2095,9 +2665,17 @@ def create_studio_server(
                         if isinstance(body.get("overrides"), dict):
                             new_spec.update(body["overrides"])
                         doc["widgets"].append(new_spec)
+                        new_idx = len(doc["widgets"]) - 1
                         state.commit_yaml_doc(doc)
+                        at = body.get("at")
+                        if isinstance(at, dict) and "x" in at and "y" in at:
+                            # Dropped from the gallery: centre the new widget on the drop point
+                            state.place_widget_centered(
+                                new_idx, float(at["x"]), float(at["y"]),
+                                float(t_val) if t_val is not None else None,
+                            )
                         resp = state.state_dict(data_t=t_val)
-                        resp["selected_index"] = len(doc["widgets"]) - 1
+                        resp["selected_index"] = new_idx
                         self._send_json(200, resp)
                 except Exception as exc:  # noqa: BLE001
                     self._send_json(400, {"error": str(exc)})
@@ -2237,18 +2815,13 @@ def create_studio_server(
                             "height": height,
                             "fps": fps,
                         })
-                        telemetry = (
-                            _clone_telemetry(state.raw_telemetry)
-                            if (render_cfg.filters or render_cfg.derived)
-                            else state.raw_telemetry
-                        )
-                        src_stem = Path(telemetry.source).stem
+                        render_inst = state.build_output_renderer(render_cfg)
+                        src_stem = Path(state.raw_telemetry.source).stem or "telemetry"
                         source_path = state.source_path
 
                     out_name = f"{src_stem}_overlay{spec.suffix}"
                     with tempfile.TemporaryDirectory() as td:
                         out_path = Path(td) / out_name
-                        render_inst = OverlayRenderer(render_cfg, telemetry)
                         export_video(
                             render_cfg,
                             source_path if (source_path and source_path.is_file()) else "memory.csv",
