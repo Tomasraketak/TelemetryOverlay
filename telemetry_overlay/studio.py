@@ -156,10 +156,12 @@ _STUDIO_HTML = r"""<!doctype html>
 
   .stage-frame {
     position: relative; line-height: 0; box-shadow: 0 12px 40px rgba(0,0,0,0.55);
+    -webkit-user-drag: none; user-select: none;
   }
-  #preview { width: 100%; height: 100%; display: block; pointer-events: none; }
+  #preview { width: 100%; height: 100%; display: block; pointer-events: none; -webkit-user-drag: none; }
   #editorLayer {
     position: absolute; inset: 0; z-index: 10; overflow: visible;
+    touch-action: none; -webkit-user-drag: none;
   }
   #editorLayer.hidden-boxes .w-box:not(.selected) { border-color: transparent; background: transparent; }
   #editorLayer.edit-off { pointer-events: none; opacity: 0; }
@@ -180,7 +182,7 @@ _STUDIO_HTML = r"""<!doctype html>
 
   /* Interactive widget hitboxes */
   .w-box {
-    position: absolute; cursor: move;
+    position: absolute; cursor: move; touch-action: none; -webkit-user-drag: none;
     border: 1px dashed rgba(255,255,255,0.24);
     border-radius: 4px;
     transition: border-color 0.08s, background 0.08s;
@@ -212,6 +214,7 @@ _STUDIO_HTML = r"""<!doctype html>
   .rh {
     position: absolute; width: 10px; height: 10px; background: #fff;
     border: 2px solid var(--accent); border-radius: 2px; display: none; z-index: 20;
+    touch-action: none; -webkit-user-drag: none;
   }
   .w-box.selected .rh { display: block; }
   .rh.nw { left: -6px; top: -6px; cursor: nwse-resize; }
@@ -419,9 +422,9 @@ _STUDIO_HTML = r"""<!doctype html>
 
     <div class="canvas-box" id="canvasBox">
       <div class="drop-overlay">Přetáhni sem telemetrický soubor<span style="font-size:13px;color:#cbd5e1;font-weight:400">CSV · XLSX · GoPro MP4 · DJI SRT · FIT · GPX · KML · IGC · NMEA · JSON</span></div>
-      <div class="stage-frame" id="stageFrame">
-        <img id="preview" alt="Overlay Preview" />
-        <div id="editorLayer">
+      <div class="stage-frame" id="stageFrame" draggable="false">
+        <img id="preview" alt="Overlay Preview" draggable="false" />
+        <div id="editorLayer" draggable="false">
           <div class="grid-overlay" id="gridOverlay"><div class="safe-margin"></div></div>
           <div id="widgetBoxes"></div>
           <div id="snapGuides"></div>
@@ -786,14 +789,16 @@ function renderSnapGuides(guides) {
 }
 
 $('editorLayer').addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  $('canvasBox').classList.remove('drag-over');
   if (!editMode || !meta) return;
   const handle = e.target.closest('.rh');
   const boxEl = e.target.closest('.w-box');
+  e.preventDefault();
   if (!boxEl) {
     selectWidget(null);
     return;
   }
-  e.preventDefault();
   const idx = Number(boxEl.dataset.idx);
   const w = meta.widgets[idx];
   if (!w || !w.rect) return;
@@ -1511,17 +1516,50 @@ $('assetInput').addEventListener('change', async (e) => {
 });
 
 const box = $('canvasBox');
-const isFileDrag = (e) => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
-['dragenter', 'dragover'].forEach(ev => box.addEventListener(ev, (e) => {
-  if (!isFileDrag(e)) return;
-  e.preventDefault(); box.classList.add('drag-over');
-}));
-['dragleave', 'drop'].forEach(ev => box.addEventListener(ev, (e) => {
-  if (!isFileDrag(e)) return;
-  e.preventDefault(); box.classList.remove('drag-over');
-}));
+let internalPointerDown = false;
+let fileDragDepth = 0;
+
+window.addEventListener('pointerdown', () => {
+  internalPointerDown = true;
+  fileDragDepth = 0;
+  box.classList.remove('drag-over');
+}, true);
+['pointerup', 'pointercancel', 'blur'].forEach(ev =>
+  window.addEventListener(ev, () => { internalPointerDown = false; }, true)
+);
+box.addEventListener('dragstart', (e) => { e.preventDefault(); return false; });
+
+const isExternalFileDrag = (e) => {
+  if (internalPointerDown || dragState) return false;
+  if (!e.dataTransfer) return false;
+  const types = Array.from(e.dataTransfer.types || []);
+  if (!types.includes('Files')) return false;
+  // Exclude browser-internal image/HTML drags (Chrome includes Files + text/html)
+  if (types.includes('text/html')) return false;
+  return true;
+};
+
+box.addEventListener('dragenter', (e) => {
+  if (!isExternalFileDrag(e)) return;
+  e.preventDefault();
+  fileDragDepth += 1;
+  box.classList.add('drag-over');
+});
+box.addEventListener('dragover', (e) => {
+  if (!isExternalFileDrag(e)) return;
+  e.preventDefault();
+  box.classList.add('drag-over');
+});
+box.addEventListener('dragleave', (e) => {
+  if (!isExternalFileDrag(e)) return;
+  fileDragDepth = Math.max(0, fileDragDepth - 1);
+  if (fileDragDepth === 0) box.classList.remove('drag-over');
+});
 box.addEventListener('drop', (e) => {
-  if (!isFileDrag(e)) return;
+  fileDragDepth = 0;
+  box.classList.remove('drag-over');
+  if (!isExternalFileDrag(e)) return;
+  e.preventDefault();
   const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
   if (f) uploadFile(f);
 });
@@ -1892,6 +1930,7 @@ def create_studio_server(
                 body = _STUDIO_HTML.encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
@@ -2272,7 +2311,9 @@ def run_studio(
     print(f"Telemetry Overlay Studio v{__version__} running at {url}")
     print("Press Ctrl+C to stop.")
     if open_browser:
-        threading.Timer(0.4, lambda: webbrowser.open(url)).start()
+        import time as _time
+        open_url = f"{url}/?v={int(_time.time())}"
+        threading.Timer(0.4, lambda: webbrowser.open(open_url)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
