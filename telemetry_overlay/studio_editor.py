@@ -19,6 +19,7 @@ from PIL import Image
 from .config import DESIGN_HEIGHT, DESIGN_WIDTH
 from .data import Telemetry
 from .render import OverlayRenderer
+from .theme import anchor_offset
 from .widgets import WIDGET_ALIASES
 
 __all__ = [
@@ -890,11 +891,22 @@ def measure_widget_rects(
                     "h": round(rh, 1),
                 }
 
+        if rect_dict is None:
+            # Inactive widget (missing channel / build error): still give it an
+            # approximate, draggable box from its geometry so it can be fixed.
+            rect_dict = _fallback_rect(renderer, spec, wtype, sx, sy)
+
         origin_dict: dict[str, float] | None = None
-        if widget is not None:
+        try:
             ox_px = renderer.context.px_x(spec.get("x", 0)) / sx
             oy_px = renderer.context.px_y(spec.get("y", 0)) / sy
             origin_dict = {"x": round(ox_px, 1), "y": round(oy_px, 1)}
+        except Exception:  # noqa: BLE001
+            origin_dict = {"x": rect_dict["x"], "y": rect_dict["y"]}
+
+        error = getattr(renderer, "widget_errors", {}).get(idx)
+        if error is None and widget is None and visible:
+            error = "Widget není aktivní (chybí kanál v datech)" if spec.get("optional") else None
 
         results.append({
             "index": idx,
@@ -902,12 +914,38 @@ def measure_widget_rects(
             "name": name,
             "visible": visible,
             "active": active,
+            "error": error,
             "resize_mode": "text" if wtype in TEXT_SCALED_WIDGETS else "box",
             "rect": rect_dict,
             "origin": origin_dict,
             "spec": copy.deepcopy(spec),
         })
     return results
+
+
+def _fallback_rect(
+    renderer: OverlayRenderer, spec: dict[str, Any], wtype: str, sx: float, sy: float
+) -> dict[str, float]:
+    ctx = renderer.context
+    text_like = wtype in TEXT_SCALED_WIDGETS
+    try:
+        w = ctx.px_x(spec.get("width"), (260.0 if text_like else 320.0) * sx)
+        h = ctx.px_y(spec.get("height"), (80.0 if text_like else 180.0) * sy)
+        x = ctx.px_x(spec.get("x", 0))
+        y = ctx.px_y(spec.get("y", 0))
+        dx, dy = anchor_offset(str(spec.get("anchor", "top-left")), w, h)
+    except Exception:  # noqa: BLE001
+        w, h, x, y, dx, dy = 320.0 * sx, 180.0 * sy, 0.0, 0.0, 0.0, 0.0
+    if w <= 4.0:
+        w = 220.0 * sx
+    if h <= 4.0:
+        h = 70.0 * sy
+    return {
+        "x": round((x + dx) / sx, 1),
+        "y": round((y + dy) / sy, 1),
+        "w": round(max(40.0, w / sx), 1),
+        "h": round(max(28.0, h / sy), 1),
+    }
 
 
 # ---------------------------------------------------------------------------
