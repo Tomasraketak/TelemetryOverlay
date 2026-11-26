@@ -542,7 +542,40 @@ def cmd_batch(args: argparse.Namespace) -> int:
 def cmd_studio(args: argparse.Namespace) -> int:
     from .studio import run_studio
     cfg_path = _resolve_config_path(args.config) if args.config else None
-    run_studio(args.data, cfg_path, host=args.host, port=args.port)
+    run_studio(
+        args.data, cfg_path,
+        host=args.host, port=args.port,
+        open_browser=bool(getattr(args, "open", False)),
+    )
+    return 0
+
+
+def cmd_install_desktop(args: argparse.Namespace) -> int:
+    from .launcher import create_desktop_launcher
+    result = create_desktop_launcher(
+        repo_dir=args.repo_dir,
+        desktop_dir=args.desktop_dir,
+        app_name=args.name,
+        auto_update=not bool(args.no_update),
+        branch=args.branch,
+    )
+    print("Desktop launcher created successfully:")
+    print(f"  shortcut : {result['shortcut']}")
+    print(f"  launcher : {result['launcher']}")
+    print(f"  icon     : {result['icon_ico']}")
+    return 0
+
+
+def cmd_update(args: argparse.Namespace) -> int:
+    from .launcher import self_update
+    info = self_update(
+        repo_dir=args.repo_dir,
+        branch=args.branch,
+        timeout=args.timeout,
+        quiet=bool(args.quiet),
+    )
+    if args.quiet:
+        print(info["status"])
     return 0
 
 
@@ -721,11 +754,43 @@ def build_parser() -> argparse.ArgumentParser:
     # studio
     studio = subparsers.add_parser(
         "studio", help="launch interactive local Web UI for live preview & config editing")
-    studio.add_argument("data", help="telemetry file to open in Studio")
+    studio.add_argument("data", nargs="?", default=None,
+                        help="optional telemetry file to open (defaults to bundled rocket sample)")
     studio.add_argument("-c", "--config", help="optional starting config or preset")
     studio.add_argument("--host", default="127.0.0.1", help="bind host (default: 127.0.0.1)")
     studio.add_argument("--port", type=int, default=8765, help="port (default: 8765)")
+    studio.add_argument("--open", action="store_true",
+                        help="automatically open Studio in your default web browser")
     studio.set_defaults(func=cmd_studio)
+
+    # install-desktop
+    desk = subparsers.add_parser(
+        "install-desktop",
+        help="create an auto-updating Desktop shortcut icon that updates & launches Studio",
+    )
+    desk.add_argument("--desktop-dir", default=None, metavar="DIR",
+                      help="override target Desktop folder")
+    desk.add_argument("--repo-dir", default=None, metavar="DIR",
+                      help="override TelemetryOverlay install folder")
+    desk.add_argument("--name", default="Telemetry Overlay",
+                      help="Desktop shortcut display name (default: 'Telemetry Overlay')")
+    desk.add_argument("--branch", default="main",
+                      help="git branch to auto-update from (default: main)")
+    desk.add_argument("--no-update", action="store_true",
+                      help="skip automatic GitHub update when clicking the Desktop icon")
+    desk.set_defaults(func=cmd_install_desktop)
+
+    # update
+    upd = subparsers.add_parser(
+        "update", help="pull latest Telemetry Overlay code and dependencies from GitHub",
+    )
+    upd.add_argument("--repo-dir", default=None, metavar="DIR",
+                     help="override TelemetryOverlay install folder")
+    upd.add_argument("--branch", default="main", help="git branch (default: main)")
+    upd.add_argument("--timeout", type=float, default=8.0,
+                     help="network timeout in seconds (default: 8.0)")
+    upd.add_argument("--quiet", action="store_true", help="print only status token")
+    upd.set_defaults(func=cmd_update)
 
     # discovery commands
     presets = subparsers.add_parser("presets", help="list the bundled activity presets")

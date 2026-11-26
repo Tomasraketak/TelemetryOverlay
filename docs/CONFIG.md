@@ -20,7 +20,7 @@ data:     { … }              # formát, synchronizace, kola, slučování soub
 filters:  [ … ]              # čištění a vyhlazování signálu
 derived:  [ … ]              # dopočítané kanály (AST výrazy)
 events:   true               # značky v grafu a časové liště
-widgets:  [ … ]              # samotný overlay (22 typů)
+widgets:  [ … ]              # samotný overlay (24 typů)
 ```
 
 ## `output`
@@ -135,11 +135,20 @@ events:
   - { time: 2.75, label: ODHOZ, color: "#38bdf8" }
 ```
 
-## `widgets` (22 typů)
+## `widgets` (24 typů)
 
 Společné vlastnosti: `type`, `name`, `x`, `y`, `width`, `height`, `anchor`, `opacity`, `visible`, `optional`, `show_from`, `show_to`, `fade`, `panel`, `panel_color`, `panel_border`, `corner_radius`, `border_width`, `text_shadow`.
 
 Každý kanál lze zadat jako jeden název nebo seznam alternativ (`[speed_kmh, speed]`).
+
+### Raketové widgety (motor a 3D náklon)
+- **`motor_burn`** (alias `rocket_motor`, `thrust_card`, `static_fire`) – all-in-one karta raketového motoru:
+  - zobrazuje aktuální tah (`N` + volitelně `kgf`), peak tah, průběžný celkový impuls (`N·s`) s automatickou **NAR/TRA třídou motoru** (`A`–`O` + `%` třídy), dobu hoření (od zážehu), průměrný tah, stavový štítek (`STANDBY`/`IGNITION`/`BURNING`/`BURNOUT`), křivku tahu s piny `IGN`/`PEAK`/`BO` a animovanou trysku s plamenem.
+  - volby: `channel` (výchozí `[thrust, force, tah]`), `title`, `threshold_fraction` (`0.05`), `zoom_burn` (`false` — přiblíží graf jen na okno hoření), `show_nozzle` (`true`), `show_kgf` (`true`), `show_events` (`true`), `color`.
+- **`rocket_3d`** (alias `rocket_attitude`, `attitude_3d`, `orientation_3d`) – **pravý 3D model rakety** v perspektivní projekci:
+  - podporuje Eulerovy úhly (`pitch_channel`, `roll_channel`, `yaw_channel` ve stupních nebo `angles_unit: rad`) i kvaterniony (`quat_w`, `quat_x`, `quat_y`, `quat_z`),
+  - zobrazuje 3D stínovanou raketu (špička, trup, barevný pruh rotace, 4 křidélka, tryska), volitelný živý **3D plamen** podle tahu (`thrust_channel`), 3D horizont s osami `N`/`E`, svislici `UP`, oblouk odchylky od svislice a číselné hodnoty `TILT`, `P`, `R`, `Y`.
+  - volby: `pitch_channel`, `roll_channel`, `yaw_channel`, `thrust_channel`, `title`, `camera_elevation` (`22`), `camera_azimuth` (`30`), `show_grid` (`true`), `show_zenith` (`true`), `show_tilt_arc` (`true`), `show_angles` (`true`), `nose_color`, `body_color`, `fin_color`.
 
 ### Základní a vědecké widgety
 - **`label`** – statický text nebo dynamická šablona (`{meta.motor}`, `{speed:.2f}x`, `{time:.2f}`, `{event}`).

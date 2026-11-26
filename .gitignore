@@ -16,3 +16,11 @@ frames/
 *.mp4
 preview*.png
 overlay.yaml
+
+# Generated desktop launcher & icons
+launch_telemetry_overlay.cmd
+launch_telemetry_overlay.sh
+.telemetry_overlay_commit
+assets/telemetry_overlay.ico
+assets/telemetry_overlay.png
+

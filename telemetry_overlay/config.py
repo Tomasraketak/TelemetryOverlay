@@ -368,10 +368,147 @@ def suggest_config(
             "widgets": widgets,
         }
 
-    # 4) Rocketry / Engineering / Generic Logger (preserves existing behaviour)
+    # 4) Rocketry (Flight with 3D attitude, Static Fire test, or standalone IMU)
+    has_quat = all(k in keys for k in ("quat_w", "quat_x", "quat_y", "quat_z"))
+    has_3d = has_attitude or has_quat
+    booleans = [k for k, c in telemetry.channels.items() if c.is_boolean]
+
+    if has_thrust or has_3d:
+        thrust_key = next(
+            (k for k in telemetry.numeric_keys()
+             if any(w in k for w in ("thrust", "force", "tah"))),
+            None,
+        )
+        widgets = []
+        if has_thrust and has_3d:
+            # Full rocket flight: 3D attitude + motor burn card + flight gauges
+            widgets.extend([
+                {"type": "label", "name": "title", "text": "ROCKET FLIGHT",
+                 "x": "4%", "y": "4%", "size": 34, "tracking": 4, "uppercase": True},
+                {"type": "timer", "name": "clock", "x": "4%", "y": "10%",
+                 "label": "mission elapsed", "size": 44, "style": "t+", "decimals": 2},
+                {"type": "badge", "name": "phase", "channel": ["phase", "state", "mode"],
+                 "x": "4%", "y": "20%", "prefix": "PHASE: ", "optional": True},
+                {"type": "motor_burn", "name": "motor",
+                 "channel": thrust_key or ["thrust", "force", "tah"],
+                 "x": "4%", "y": "59%", "width": "41%", "height": "32%",
+                 "title": "Rocket Motor", "zoom_burn": True},
+                {"type": "rocket_3d", "name": "attitude_3d",
+                 "x": "70%", "y": "5%", "width": 320, "height": 370,
+                 "title": "3D Attitude",
+                 "thrust_channel": thrust_key or ["thrust", "force", "tah"]},
+            ])
+            if "altitude" in telemetry:
+                widgets.append({
+                    "type": "tape", "name": "alt_tape", "channel": "altitude",
+                    "label": "ALT", "side": "right", "x": "96%", "y": "5%",
+                    "anchor": "top-right", "width": 130, "height": 370,
+                })
+                widgets.append({
+                    "type": "graph", "name": "alt_graph",
+                    "series": [{"channel": "altitude", "fill": True}],
+                    "x": "48%", "y": "59%", "width": "48%", "height": "32%",
+                    "mode": "full", "title": "Altitude Profile", "show_value": True,
+                })
+            if "velocity" in telemetry:
+                widgets.append({
+                    "type": "readout", "name": "vel", "channel": "velocity",
+                    "x": "4%", "y": "31%", "label": "Velocity", "value_size": 54,
+                    "format": "{:.1f}",
+                })
+            widgets.append({
+                "type": "progress", "name": "timeline",
+                "x": "4%", "y": "96%", "width": "92%", "height": 10,
+            })
+            return {
+                "name": "Rocket Flight & Motor Telemetry",
+                "output": {"resolution": resolution, "fps": fps},
+                "time": {"speed": 1.0},
+                "theme": {"base": "night", "palette": "rocket"},
+                "events": True,
+                "widgets": widgets,
+            }
+
+        if has_thrust and thrust_key:
+            # Static fire motor test stand
+            channel = telemetry[thrust_key]
+            lo, hi = channel.range()
+            widgets.append({
+                "type": "motor_burn", "name": "motor", "channel": thrust_key,
+                "x": "4%", "y": "62%", "width": "43%", "height": "33%",
+                "title": "Rocket Motor", "show_nozzle": True,
+            })
+            widgets.append({
+                "type": "gauge", "name": f"{thrust_key}_gauge", "channel": thrust_key,
+                "x": "96%", "y": "62%", "anchor": "top-right",
+                "width": 270, "height": 270, "label": channel.label,
+                "show_scale": True, "peak_marker": True,
+                "min": max(0.0, lo), "max": hi * 1.05, "format": "{:.0f}",
+            })
+            for i, key in enumerate(booleans[:4]):
+                widgets.append({
+                    "type": "led", "name": key, "channel": key,
+                    "x": "4%", "y": f"{55 - i * 5}%", "label": telemetry[key].label,
+                })
+            widgets.append({
+                "type": "progress", "name": "timeline",
+                "x": "4%", "y": "97.5%", "width": "92%", "height": 8,
+            })
+            import numpy as np
+            values = channel.values
+            finite = np.where(np.isfinite(values), values, -np.inf)
+            peak_t = float(telemetry.time[int(np.argmax(finite))])
+            span = telemetry.duration
+            half = max(0.25, min(1.0, span * 0.12))
+            time_cfg: dict[str, Any] = {
+                "speed": 1.0,
+                "ramps": [{
+                    "from": round(peak_t - half * 3, 3),
+                    "to": round(peak_t + half, 3),
+                    "speed": 0.25, "ease": round(half * 0.5, 3),
+                    "label": "burn",
+                }],
+            }
+            return {
+                "name": "Rocket Motor Static Fire",
+                "output": {"resolution": resolution, "fps": fps},
+                "time": time_cfg,
+                "theme": {"base": "night", "palette": "rocket"},
+                "events": True,
+                "widgets": widgets,
+            }
+
+        # Standalone 3D attitude / IMU log (no GPS, no thrust)
+        attitude_series = [
+            {"channel": k} for k in ("pitch", "roll", "yaw") if k in telemetry
+        ][:3]
+        widgets = [
+            {"type": "label", "name": "title", "text": "3D ATTITUDE TELEMETRY",
+             "x": "4%", "y": "5%", "size": 36, "tracking": 4, "uppercase": True},
+            {"type": "timer", "name": "clock", "x": "4%", "y": "12%",
+             "label": "time", "size": 46, "style": "t+", "decimals": 2},
+            {"type": "rocket_3d", "name": "attitude_3d",
+             "x": "96%", "y": "6%", "anchor": "top-right",
+             "width": 380, "height": 440, "title": "3D Attitude"},
+        ]
+        if attitude_series:
+            widgets.append({
+                "type": "graph", "name": "attitude_graph", "series": attitude_series,
+                "x": "4%", "y": "60%", "width": "54%", "height": "32%",
+                "mode": "full", "title": "Orientation Angles", "show_value": True,
+            })
+        return {
+            "name": "3D Rocket Attitude Telemetry",
+            "output": {"resolution": resolution, "fps": fps},
+            "time": {"speed": 1.0},
+            "theme": {"base": "night", "palette": "rocket"},
+            "events": False,
+            "widgets": widgets,
+        }
+
+    # 5) Generic Engineering / Data Logger
     numeric = [k for k in telemetry.numeric_keys()
                if not k.startswith("time") and k != "time"]
-    booleans = [k for k, c in telemetry.channels.items() if c.is_boolean]
 
     def interest(key: str) -> float:
         channel = telemetry[key]
@@ -388,7 +525,7 @@ def suggest_config(
 
     widgets = [
         {"type": "label", "name": "title",
-         "text": "STATIC FIRE" if has_thrust else "TELEMETRY",
+         "text": "TELEMETRY",
          "x": "4%", "y": "6%", "size": 40, "tracking": 4, "uppercase": True},
         {"type": "timer", "name": "clock", "x": "4%", "y": "12%",
          "label": "mission time", "size": 52, "style": "t+", "decimals": 2},
@@ -423,21 +560,7 @@ def suggest_config(
             "x": "4%", "y": f"{44 + i * 5}%", "label": telemetry[key].label,
         })
 
-    time_cfg: dict[str, Any] = {"speed": 1.0}
-    if primary:
-        import numpy as np
-        values = telemetry[primary].values
-        finite = np.where(np.isfinite(values), values, -np.inf)
-        peak_t = float(telemetry.time[int(np.argmax(finite))])
-        span = telemetry.duration
-        half = max(0.25, min(1.0, span * 0.12))
-        time_cfg["ramps"] = [{
-            "from": round(peak_t - half * 3, 3),
-            "to": round(peak_t + half, 3),
-            "speed": 0.25, "ease": round(half * 0.5, 3),
-            "label": "burn",
-        }]
-
+    time_cfg = {"speed": 1.0}
     return {
         "name": "Telemetry overlay",
         "output": {"resolution": resolution, "fps": fps},

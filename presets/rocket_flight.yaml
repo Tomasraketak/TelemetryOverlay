@@ -1,5 +1,5 @@
-name: Rocket Launch Flight Dashboard
-description: Full flight telemetry dashboard with altitude tape, velocity, acceleration G, attitude, flight phase badge and trajectory curve.
+name: Rocket Launch Flight Dashboard (with 3D Attitude & Motor Burn)
+description: Full rocket launch dashboard with true 3D tilt visualizer, motor burn curve/impulse card, altitude ladder tape, velocity and flight phase badge.
 
 output:
   resolution: 1080p
@@ -20,7 +20,7 @@ widgets:
     name: title
     text: FLIGHT TELEMETRY
     x: 4%
-    y: 4.5%
+    y: 4%
     size: 36
     tracking: 5
     uppercase: true
@@ -28,9 +28,9 @@ widgets:
   - type: timer
     name: mission_clock
     x: 4%
-    y: 10%
+    y: 9.5%
     label: mission elapsed
-    size: 50
+    size: 48
     style: t+
     decimals: 2
     show_speed: true
@@ -40,7 +40,7 @@ widgets:
     channel: [phase, flight_phase, state, mode]
     label: Phase
     x: 4%
-    y: 21%
+    y: 20%
     size: 20
     colors:
       pad: "#64748b"
@@ -58,8 +58,8 @@ widgets:
     channel: [altitude, alt, baro_altitude]
     label: Altitude
     x: 4%
-    y: 29%
-    value_size: 76
+    y: 27.5%
+    value_size: 72
     format: "{:.0f}"
     optional: true
 
@@ -68,9 +68,19 @@ widgets:
     channel: [velocity, speed, vspeed]
     label: Velocity
     x: 4%
-    y: 43%
-    value_size: 56
+    y: 41%
+    value_size: 52
     format: "{:.1f}"
+    optional: true
+
+  - type: rocket_3d
+    name: rocket_3d_attitude
+    title: 3D Attitude
+    x: 86.5%
+    y: 5%
+    anchor: top-right
+    width: 320
+    height: 370
     optional: true
 
   - type: tape
@@ -79,37 +89,39 @@ widgets:
     label: ALT
     side: right
     x: 96%
-    y: 10%
+    y: 5%
     anchor: top-right
     width: 130
-    height: 360
+    height: 370
     optional: true
 
-  - type: attitude
-    name: rocket_attitude
-    x: 82%
-    y: 12%
-    anchor: top-center
-    width: 220
-    height: 220
+  - type: motor_burn
+    name: motor_burn_card
+    channel: [thrust, thrust_above_rest, force]
+    x: 4%
+    y: 59%
+    width: 790
+    height: 350
+    zoom_burn: true
     optional: true
 
   - type: graph
     name: flight_profile
-    title: Flight Profile
-    channel: [altitude, thrust, velocity, speed]
-    x: 4%
-    y: 62%
-    width: 56%
-    height: 30%
+    title: Altitude Profile
+    channel: [altitude, alt, baro_altitude]
+    x: 48%
+    y: 59%
+    width: 48%
+    height: 32.5%
     mode: full
     show_value: true
     fill: true
     gradient: true
+    optional: true
 
   - type: progress
     name: mission_bar
     x: 4%
-    y: 94.5%
+    y: 95%
     width: 92%
-    height: 34
+    height: 32

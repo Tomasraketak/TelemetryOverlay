@@ -13,6 +13,7 @@ from . import graph as _graph                # noqa: F401
 from . import indicators as _ind             # noqa: F401
 from . import spatial as _spatial            # noqa: F401
 from . import telemetry_pro as _pro          # noqa: F401
+from . import rocketry as _rocketry          # noqa: F401
 
 __all__ = [
     "RenderContext", "Widget", "WIDGET_TYPES", "WIDGET_ALIASES",
